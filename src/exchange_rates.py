@@ -591,9 +591,9 @@ def plot_fx_timeseries(
 
 if __name__ == "__main__":
     base_currency = "GBP"
-    target_currencies = ["USD", "EUR"]
+    target_currencies = ["USD", "EUR", "JPY"]
     cryptos = ["BTC", "ETH"]
-    shares = ['AAPL', 'RR.L', 'MSFT']
+    shares = ['AAPL', 'RR.L', 'MSFT', 'NVDA', 'LDO.MI','4816.T']
 
     start_date = datetime(2024, 6, 1)
     end_date = datetime(2025, 12, 29)

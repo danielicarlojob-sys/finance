@@ -58,7 +58,9 @@ def get_exchange_rates(
         for key, value in results.items():
             temp_key = f"{base}/{key}"
             output[temp_key] = float(value)
-
+        
+        output = pd.DataFrame([output])
+        output.attrs["currency_type"] = {col: "fiat" for col in output.keys()}
         return output
 
     # ---------------- single date ----------------
@@ -73,6 +75,8 @@ def get_exchange_rates(
         for key, value in results.items():
             temp_key = f"{base}/{key}"
             output[temp_key] = float(value)
+        output = pd.DataFrame([output])
+        output.attrs["currency_type"] = {col: "fiat" for col in output.keys()}
 
         return output
 
@@ -97,6 +101,8 @@ def get_exchange_rates(
         df.columns = [f"{base}/{c}" for c in df.columns]
 
         df.index = pd.to_datetime(df.index)
+        df.attrs["currency_type"] = {col: "fiat" for col in df.columns}
+
         return df
 
     raise ValueError("Invalid date combination")
@@ -168,6 +174,7 @@ def get_crypto_prices(
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
                 df.columns.name = None
+        df.attrs["currency_type"] = {col: "crypto" for col in df.columns}
 
         return df
 
@@ -209,6 +216,7 @@ def get_crypto_prices(
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
         df.columns.name = None
+    df.attrs["currency_type"] = {col: "crypto" for col in df.columns}
 
     return df
 
@@ -275,6 +283,13 @@ def get_fx_and_crypto(
     # Concatenate FX and crypto along columns
     combined = pd.concat([fx_df, crypto_df], axis=1)
 
+    # Assign attributes from data source
+    combined.attrs["currency_type"] = {
+    **{col: "fiat" for col in fx_df.columns},
+    **{col: "crypto" for col in crypto_df.columns},
+}
+
+
     return combined
 
 
@@ -284,59 +299,131 @@ def plot_fx_timeseries(
     linewidth: float = 1.0,
     marker: str = "o",
     markersize: float = 3,
+    padding_frac: float = 0.05,
 ) -> None:
     """
-    Plot multiple FX time series on a single axis with consistent styling.
-
-    - Same line width for all series
-    - Same marker and marker size
-    - Different colors per column (automatic)
-    - Legend enabled
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Date-indexed DataFrame with numeric columns
-    title : str | None
-        Optional plot title
-    linewidth : float
-        Line width for all series
-    marker : str
-        Marker style for all series
-    markersize : float
-        Marker size for all series
+    Plot FX and crypto time series with:
+    - Fiat on primary y-axis
+    - Crypto on secondary y-axis
+    - Unique color per data series
+    - Auto-scaled y-limits per axis
+    - Legend annotated with FIAT / CRYPTO / N/A
     """
 
     if not isinstance(df.index, pd.DatetimeIndex):
         raise TypeError("DataFrame index must be a DatetimeIndex")
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    currency_meta = df.attrs.get("currency_type", {})
+
+    fig, ax_fiat = plt.subplots(figsize=(10, 5))
+    ax_crypto = None
+
+    # ---------- global color mapping ----------
+    color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    colors = {
+        col: color_cycle[i % len(color_cycle)]
+        for i, col in enumerate(df.columns)
+    }
+
+    fiat_handles = []
+    crypto_handles = []
+
+    fiat_values = []
+    crypto_values = []
 
     for col in df.columns:
-        ax.plot(
-            df.index,
-            df[col],
-            label=col,
-            linewidth=linewidth,
-            marker=marker,
-            markersize=markersize,
+        series = df[col].dropna()
+        if series.empty:
+            continue
+
+        ctype = currency_meta.get(col)
+        label_suffix = (
+            f" - {ctype.upper()}" if isinstance(ctype, str) else " - N/A"
         )
 
-    ax.legend()
-    ax.grid(True, linestyle="--", alpha=0.4)
+        color = colors[col]
+
+        if ctype == "crypto":
+            if ax_crypto is None:
+                ax_crypto = ax_fiat.twinx()
+
+            line, = ax_crypto.plot(
+                series.index,
+                series.values,
+                color=color,
+                linewidth=linewidth,
+                marker=marker,
+                markersize=markersize,
+                label=f"{col}{label_suffix}",
+            )
+
+            crypto_handles.append(line)
+            crypto_values.append(series.values)
+
+        else:
+            line, = ax_fiat.plot(
+                series.index,
+                series.values,
+                color=color,
+                linewidth=linewidth,
+                marker=marker,
+                markersize=markersize,
+                label=f"{col}{label_suffix}",
+            )
+
+            fiat_handles.append(line)
+            fiat_values.append(series.values)
+
+    # ---------- auto-scale y-axes ----------
+
+    def _autoscale(ax, values):
+        if not values:
+            return
+
+        data = pd.concat(
+            [pd.Series(v) for v in values], ignore_index=True
+        )
+
+        ymin = data.min()
+        ymax = data.max()
+
+        if ymin == ymax:
+            pad = abs(ymin) * padding_frac if ymin != 0 else 1.0
+        else:
+            pad = (ymax - ymin) * padding_frac
+
+        ax.set_ylim(ymin - pad, ymax + pad)
+
+    _autoscale(ax_fiat, fiat_values)
+
+    if ax_crypto is not None:
+        _autoscale(ax_crypto, crypto_values)
+
+    # ---------- labels, grid, legend ----------
+
+    ax_fiat.set_xlabel("Date")
+    ax_fiat.set_ylabel("Fiat Exchange Rate")
+
+    if ax_crypto is not None:
+        ax_crypto.set_ylabel("Crypto Exchange Rate")
+
+    ax_fiat.grid(True, linestyle="--", alpha=0.4)
+
+    handles = fiat_handles + crypto_handles
+    labels = [h.get_label() for h in handles]
+
+    if handles:
+        ax_fiat.legend(handles, labels)
 
     if title:
-        ax.set_title(title)
-
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Exchange Rate")
+        ax_fiat.set_title(title)
 
     plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
     base_currency = "GBP"
-    target_currencies = ["USD", "EUR", "JPY"]
+    target_currencies = ["USD", "EUR"]
     cryptos = ["BTC", "ETH"]
     start_date = datetime(2024, 6, 1)
     end_date = datetime(2025, 12, 29)
@@ -383,6 +470,8 @@ if __name__ == "__main__":
                             )
     print(f"rates with cryptos between {start_date} and {end_date} type: {type(df)}")
     print(f"rates with cryptos between {start_date} and {end_date}:\n{df}")
+    print(f"df attributes:\n{df.attrs["currency_type"]}")
+
     
     plot_fx_timeseries(
     df,

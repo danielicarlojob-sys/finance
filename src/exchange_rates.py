@@ -292,6 +292,174 @@ def get_fx_and_crypto(
 
     return combined
 
+def get_share_prices(
+    tickers: Iterable[str],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> pd.DataFrame:
+    """
+    Retrieve share prices using Yahoo Finance.
+
+    Cases
+    -----
+    - No dates provided:
+        Returns latest available closing prices
+    - Only start date:
+        Returns closing prices on or after that date
+    - Start and end dates:
+        Returns daily closing prices in the date range (inclusive)
+
+    Parameters
+    ----------
+    tickers : Iterable[str]
+        Equity tickers (e.g. ['AAPL', 'RR.L', 'MSFT'])
+    start : datetime | None
+        Single date or range start
+    end : datetime | None
+        Range end
+
+    Returns
+    -------
+    pd.DataFrame
+        Date-indexed DataFrame of closing prices.
+        Quote currency per ticker stored in df.attrs["currency"].
+    """
+    tickers = [t.upper() for t in tickers]
+    today = pd.Timestamp.today().normalize()
+
+    currency_meta = {}  # ticker -> currency
+    series_dict = {}    # ticker -> pd.Series of closing prices
+
+    # ---------- latest prices ----------
+    if start is None and end is None:
+        for ticker in tickers:
+            yf_ticker = yf.Ticker(ticker)
+            hist = yf_ticker.history(period="5d", auto_adjust=True)
+
+            if hist.empty:
+                continue
+
+            # Use explicit name to avoid rename issues
+            s = hist["Close"].copy()
+            s.name = ticker
+            s.index = pd.to_datetime(s.index).normalize()
+            series_dict[ticker] = s
+
+            currency_meta[ticker] = yf_ticker.fast_info.get("currency")
+
+
+
+        if not series_dict:
+            raise RuntimeError("No share price data retrieved")
+
+        df = pd.concat(series_dict.values(), axis=1).sort_index()
+        df.attrs["currency"] = currency_meta
+        second_level = [s.upper() for s in list(currency_meta.values())]
+
+
+        df.columns = pd.MultiIndex.from_arrays(
+                                                [df.columns, second_level],
+                                                names=["ACTION", "CURRENCY"],
+                                                )
+        return df
+
+    # ---------- historical prices ----------
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize() if end else start_ts
+
+    for ticker in tickers:
+        yf_ticker = yf.Ticker(ticker)
+        hist = yf.download(
+            ticker,
+            start=start_ts,
+            end=end_ts + pd.Timedelta(days=1),  # Yahoo end exclusive
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+
+        if hist.empty:
+            continue
+
+        # Copy & name explicitly
+        s = hist["Close"].copy()
+        s.name = ticker
+        s.index = pd.to_datetime(s.index).normalize()
+        series_dict[ticker] = s
+
+        currency_meta[ticker] = yf_ticker.fast_info.get("currency")
+
+
+    if not series_dict:
+        raise RuntimeError("No share price data retrieved")
+
+    df = pd.concat(series_dict.values(), axis=1).sort_index()
+    df.attrs["currency"] = currency_meta
+
+    second_level = [s.upper() for s in list(currency_meta.values())]
+
+    df.columns = pd.MultiIndex.from_arrays(
+                                            [df.columns, second_level],
+                                            names=["ACTION", "CURRENCY"],
+                                            )
+    return df
+
+def convert_prices_to_base_currency(
+    prices: pd.DataFrame,
+    fx: pd.DataFrame,
+    base_currency: str = "GBP",
+    currency_level: str = "CURRENCY",
+    action_level: str = "ACTION",
+) -> pd.DataFrame:
+    """
+    Convert a MultiIndex-column price DataFrame to a single base currency
+    and relabel columns accordingly.
+    """
+
+    if not isinstance(prices.columns, pd.MultiIndex):
+        raise TypeError("prices must have MultiIndex columns")
+
+    # Align FX dates
+    fx = fx.reindex(prices.index).ffill()
+
+    out = prices.copy()
+
+    currency_idx = prices.columns.names.index(currency_level)
+    action_idx = prices.columns.names.index(action_level)
+
+    # ---------- numeric conversion ----------
+    for col in prices.columns:
+        currency = col[currency_idx]
+
+        if currency == base_currency:
+            continue
+
+        fx_col = f"{base_currency}/{currency}"
+        if fx_col not in fx.columns:
+            raise KeyError(f"Missing FX rate: {fx_col}")
+
+        out[col] = prices[col] / fx[fx_col]
+
+    # ---------- relabel columns ----------
+    new_columns = []
+
+    for col in out.columns:
+        action = col[action_idx]
+        orig_ccy = col[currency_idx]
+
+        new_action = f"{action}_{orig_ccy}→{base_currency}"
+
+        new_columns.append(
+            (new_action, base_currency)
+        )
+
+    out.columns = pd.MultiIndex.from_tuples(
+        new_columns,
+        names=[action_level, currency_level]
+    )
+
+    return out
+
 
 def plot_fx_timeseries(
     df: pd.DataFrame,
@@ -425,59 +593,94 @@ if __name__ == "__main__":
     base_currency = "GBP"
     target_currencies = ["USD", "EUR"]
     cryptos = ["BTC", "ETH"]
+    shares = ['AAPL', 'RR.L', 'MSFT']
+
     start_date = datetime(2024, 6, 1)
     end_date = datetime(2025, 12, 29)
 
-
-
-    try:
-        df_crypto = get_crypto_prices(
-                            symbols=cryptos,
-                            vs_currency=base_currency,
-                            start_date=start_date,
-                            end_date=end_date
-                            )
-        
-    except Exception as e:
-        print(f"{debug_print()} error extracting cryptos xchange rates {type(e).__name__}: {e}") 
-
-    
-    rates = get_exchange_rates("EUR", target_currencies)
-    print(f"latest rates type: {type(rates)}")
-    print("latest rates:", rates)
-
-    rates = get_exchange_rates(
-                                base=base_currency,
-                                symbols=target_currencies,
-                                start=start_date
+    OLD_PROCESS = False
+    if OLD_PROCESS == True:
+        try:
+            df_crypto = get_crypto_prices(
+                                symbols=cryptos,
+                                vs_currency=base_currency,
+                                start_date=start_date,
+                                end_date=end_date
                                 )
-    print(f"rates from {start_date} type: {type(rates)}")
-    print(f"rates from {start_date}: {rates}")
-    df = get_exchange_rates(
-                                base=base_currency,
-                                symbols=target_currencies,
-                                start=start_date,
-                                end=end_date
-                            )
-    print(f"rates between {start_date} and {end_date} type: {type(df)}")
-    print(f"rates between {start_date} and {end_date}:\n{df}")
-    df = get_fx_and_crypto(
-    base=base_currency,
-    fiat_symbols=target_currencies,
-    crypto_symbols=cryptos,
+            
+        except Exception as e:
+            print(f"{debug_print()} error extracting cryptos xchange rates {type(e).__name__}: {e}") 
+
+        
+        rates = get_exchange_rates("EUR", target_currencies)
+        print(f"latest rates type: {type(rates)}")
+        print("latest rates:", rates)
+
+        rates = get_exchange_rates(
+                                    base=base_currency,
+                                    symbols=target_currencies,
+                                    start=start_date
+                                    )
+        print(f"rates from {start_date} type: {type(rates)}")
+        print(f"rates from {start_date}: {rates}")
+        df = get_exchange_rates(
+                                    base=base_currency,
+                                    symbols=target_currencies,
+                                    start=start_date,
+                                    end=end_date
+                                )
+        print(f"rates between {start_date} and {end_date} type: {type(df)}")
+        print(f"rates between {start_date} and {end_date}:\n{df}")
+        df = get_fx_and_crypto(
+        base=base_currency,
+        fiat_symbols=target_currencies,
+        crypto_symbols=cryptos,
+        start=start_date,
+        end=end_date,
+                                )
+        print(f"rates with cryptos between {start_date} and {end_date} type: {type(df)}")
+        print(f"rates with cryptos between {start_date} and {end_date}:\n{df}")
+        print(f"df attributes:\n{df.attrs["currency_type"]}")
+
+        
+        plot_fx_timeseries(
+        df,
+        title="EUR FX Rates",
+        linewidth=0.8,
+        marker=".",
+        markersize=2
+    )
+    # --------------------------------
+    # END   OLD_PROCESS
+    # --------------------------------
+
+    df_shares = get_share_prices(
+    tickers=shares,
     start=start_date,
     end=end_date,
-                            )
-    print(f"rates with cryptos between {start_date} and {end_date} type: {type(df)}")
-    print(f"rates with cryptos between {start_date} and {end_date}:\n{df}")
-    print(f"df attributes:\n{df.attrs["currency_type"]}")
-
-    
-    plot_fx_timeseries(
-    df,
-    title="EUR FX Rates",
-    linewidth=0.8,
-    marker=".",
-    markersize=2
 )
+    print(f"df_shares.attr:\n{df_shares.attrs}")
+    print(f"df_shares:\n{df_shares}")
+
+    rates = get_exchange_rates(
+                            base=base_currency,
+                            symbols=target_currencies,
+                            start=start_date,
+                            end=end_date,
+                            )
+    print(f"rates:\n{rates}")
+    try:
+        df_converted = convert_prices_to_base_currency(
+        prices= df_shares,
+        fx = rates,
+        base_currency = "GBP",
+        currency_level = "CURRENCY",
+    )
+        print(f"{debug_print()} df_convereted:\n{df_converted}")
+        
+    except Exception as e:
+        print(f"{debug_print()} ERROR on convert_prices_to_base_currency {type(e).__name__}: {e}") 
+    
+    
+
 

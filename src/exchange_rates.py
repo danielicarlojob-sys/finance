@@ -1,11 +1,13 @@
 import os
 import requests                      # HTTP client for API calls
 import pandas as pd                  # Tabular data handling
+import numpy as np
 from datetime import datetime        # Datetime handling
 from typing import Iterable, Optional, Dict, Union
 import matplotlib.pyplot as plt
 import yfinance as yf
 from src.debug_print import debug_print
+from src.plot_shares import plot_candles_with_volatility
 
 
 
@@ -479,45 +481,6 @@ def get_share_prices_2(
     # =========================================================================
     # SHARE VALUES EXTRACTED
     # =========================================================================
-        """
-        print(f"{debug_print()} currency_meta: {currency_meta}")
-        try:
-            # Get unique currencies from prices
-            currecies_list = [s.upper() for s in list(set(df.attrs["currency"].values()))]
-            print(f"{debug_print()} [currecies_list]:\n{currecies_list}")
-        except Exception as e:
-            print(f"{debug_print()} [FAILED] extracting currecies_list from df {type(e).__name__}: {e}")
-        # Get exchange rates for currency_list
-        try:
-            fx_inner = get_exchange_rates(
-                                base=base_currency,
-                                symbols=currecies_list,
-                                start=df.index.min(),
-                                end=df.index.max(),
-                                )
-            print(f"{debug_print()} fx_inner: {fx_inner}")
-        except Exception as e:
-            print(f"{debug_print()} [FAILED] could not get fx_inner = get_exchange_rates {type(e).__name__}: {e}")
-        """
-
-
-        # ---------- FX normalisation ----------
-        """
-        try:
-            if currency != base_currency:
-                if fx_rates is None:
-                    raise ValueError("FX rates required for currency normalisation")
-
-                # pair = f"{currency}/{base_currency}"
-                pair = f"{base_currency}/{currency}"
-                if pair not in fx_rates.columns:
-                    raise KeyError(f"Missing FX rate: {pair}")
-
-                fx = fx_rates[pair].reindex(df.index).ffill()
-                df = df.mul(fx, axis=0)
-        except Exception as e:
-            print(f"{debug_print()} [FAILED] running FX normalization {type(e).__name__}: {e}")
-        """
         try:
             # ---------- derived metrics ----------
             df["RANGE"] = df["High"] - df["Low"]
@@ -558,56 +521,69 @@ def get_share_prices_2(
     # ===========================================================
     # WORKS UNTIL THIS POINT
     # ===========================================================
-
-
+    currencies = list(set(currency_meta.values())) 
     try:
         fx = get_exchange_rates(
                             base=base_currency,
-                            symbols=currency_meta,
+                            symbols=currencies,
                             start=start,
                             end=end,
                             )
     except Exception as e:
         print(f"{debug_print()} [FAILED] could not get fx = get_exchange_rates {type(e).__name__}: {e}")
+    
+    # ---------- Align FX dates ----------
+    try:
+        fx = fx.reindex(out_temp.index).ffill()
+        out = out_temp.copy()
 
-    # Align FX dates
-    fx = fx.reindex(out_temp.index).ffill()
-    out = out_temp.copy()
-
-    currency_idx = out_temp.columns.names.index("CURRENCY")
-    action_idx = out_temp.columns.names.index("ACTION")
-    metric_idx = out_temp.columns.names.index("METRIC")
+        currency_idx = out_temp.columns.names.index("CURRENCY")
+        action_idx = out_temp.columns.names.index("ACTION")
+        metric_idx = out_temp.columns.names.index("METRIC")
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not Align FX dates {type(e).__name__}: {e}")
 
     # ---------- numeric conversion ----------
-    for col in out.columns:
-        currency = col[currency_idx]
+    try:
+        for col in out.columns:
+            currency = col[currency_idx]
 
-        if currency == base_currency:
-            continue
+            if currency == base_currency:
+                continue
 
-        fx_col = f"{base_currency}/{currency}"
-        if fx_col not in fx.columns:
-            raise KeyError(f"Missing FX rate: {fx_col}")
+            fx_col = f"{base_currency}/{currency}"
+            if fx_col not in fx.columns:
+                raise KeyError(f"Missing FX rate: {fx_col}")
 
-        out[col] = prices[col] / fx[fx_col]
+            out[col] = out_temp[col] / fx[fx_col]
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not perform numeric conversion {type(e).__name__}: {e}")
 
     # ---------- relabel columns ----------
-    new_columns = []
+    try:
+        new_columns = []
 
-    for col in out.columns:
-        action = col[action_idx]
-        orig_ccy = col[currency_idx]
+        for col in out.columns:
+            action = col[action_idx]
+            orig_ccy = col[currency_idx]
+            metric = col[metric_idx]
 
-        new_action = f"{action}_{orig_ccy}→{base_currency}"
+            new_action = f"{action}_{orig_ccy}→{base_currency}"
 
-        new_columns.append(
-            (new_action, base_currency)
+            new_columns.append(
+                (new_action, base_currency, metric)
+            )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not relabel columns {type(e).__name__}: {e}")
+    
+    # ---------- MultiIndex ----------
+    try:
+        out.columns = pd.MultiIndex.from_tuples(
+            new_columns,
+            names=["ACTION", "CURRENCY", "METRIC"]
         )
-
-    out.columns = pd.MultiIndex.from_tuples(
-        new_columns,
-        names=["ACTION", "CURRENCY", "METRIC"]
-    )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not create MultiIndex {type(e).__name__}: {e}")        
     return out
 
 
@@ -892,53 +868,26 @@ if __name__ == "__main__":
         fx_rates = rates,
         vol_window = 20,
     )
-        """
-        out.attrs["currency"] = currency_meta
-        out.attrs["base_currency"] = base_currency
-        out.attrs["vol_window"] = vol_window
-        """
-        print(f"{debug_print()} get_share_prices_2 type:\n{type(df_shares2)}")
+
         print(f"{debug_print()} get_share_prices_2:\n{df_shares2}")
     except Exception as e:
         print(f"{debug_print()} [FAILED] running get_share_prices_2 {type(e).__name__}: {e} ")
-    try:
-        currency_meta_2 = df_shares2.attrs["currency"]
-        base_currency_2 = df_shares2.attrs["base_currency"]
-        vol_window_2 = df_shares2.attrs["vol_window"]
-        print(f"{debug_print()} currency_meta_2 type:\n{type(currency_meta_2)}")
-        print(f"{debug_print()} currency_meta_2 :\n{currency_meta_2}")        
-        
-        print(f"{debug_print()} base_currency_2 type:\n{type(base_currency_2)}")
-        print(f"{debug_print()} base_currency_2 :\n{base_currency_2}")
-
-        print(f"{debug_print()} vol_window_2 type:\n{type(vol_window_2)}")
-        print(f"{debug_print()} vol_window_2 :\n{vol_window_2}")
-
-        # Get unique currencies from prices
-        currecies_list = [s.upper() for s in list(set(currency_meta_2.values()))]
-        print(f"{debug_print()} currecies_list type:\n{type(currecies_list)}")
-        print(f"{debug_print()} currecies_list :\n{currecies_list}")
-
-
-
-    except Exception as e:
-        print(f"{debug_print()} [FAILED] running get_share_prices_2 {type(e).__name__}: {e} ")
-        # Get exchange rates for currency_list
-    try:
-        # currency_meta_2 = df_shares2.attrs["currency"]
-        # currecies_list = [s.upper() for s in list(set(currency_meta_2.values()))]
-        fx_2 = get_exchange_rates(
-                            base=base_currency,
-                            symbols=currecies_list,
-                            start=start_date,
-                            end=end_date,
-                            )
-        print(f"{debug_print()} fx_2: {fx_2}")
-    except Exception as e:
-        print(f"{debug_print()} [FAILED] could not get fx_2 = get_exchange_rates {type(e).__name__}: {e}")
-
-
     
+    # ----------- PLOT SHARE ---------------
+    try:
+        actions_list   = df_shares2.columns.get_level_values("ACTION").unique().to_list()
+        currencies_list = df_shares2.columns.get_level_values("CURRENCY").unique()
+        metrics   = df_shares2.columns.get_level_values("METRIC").unique()
+
+        plot_candles_with_volatility(
+            df=df_shares2,
+            actions=actions_list,
+            start=df_shares2.index.min(),
+            end=df_shares2.index.max()
+        )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] PLOT SHARE {type(e).__name__}: {e} ")
+
     if OLD_PROCESS == True:
         df_shares = get_share_prices(
         tickers=shares,

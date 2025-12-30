@@ -406,7 +406,6 @@ def get_share_prices(
 
 def convert_prices_to_base_currency(
     prices: pd.DataFrame,
-    fx: pd.DataFrame,
     base_currency: str = "GBP",
     currency_level: str = "CURRENCY",
     action_level: str = "ACTION",
@@ -418,6 +417,23 @@ def convert_prices_to_base_currency(
 
     if not isinstance(prices.columns, pd.MultiIndex):
         raise TypeError("prices must have MultiIndex columns")
+    
+    # Get unique currencies from prices
+    currecies_list = [s.upper() for s in list(set(prices.attrs["currency"].values()))]
+
+    # Get exchange rates for currency_list
+    try:
+        fx = get_exchange_rates(
+                            base=base_currency,
+                            symbols=currecies_list,
+                            start=prices.index.min(),
+                            end=prices.index.max(),
+                            )
+        print(f"{debug_print()} fx: {fx}")
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not get fx = get_exchange_rates {type(e).__name__}: {e}")
+
+
 
     # Align FX dates
     fx = fx.reindex(prices.index).ffill()
@@ -668,11 +684,10 @@ if __name__ == "__main__":
                             start=start_date,
                             end=end_date,
                             )
-    print(f"rates:\n{rates}")
+    # print(f"rates:\n{rates}")
     try:
         df_converted = convert_prices_to_base_currency(
         prices= df_shares,
-        fx = rates,
         base_currency = "GBP",
         currency_level = "CURRENCY",
     )

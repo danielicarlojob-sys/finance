@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from src.debug_print import debug_print
 from src.plot_shares import plot_candles_with_volatility
+from src.plot_shares_ROI import plot_candles_with_volatility_and_target as plt_vol_trg
+from src.plot_shares_ROI2 import plot_candles_volatility_volume_roi as ROI
+from src.fetch_lse_tickers import get_ftse100
 
 
 
@@ -108,7 +111,6 @@ def get_exchange_rates(
         return df
 
     raise ValueError("Invalid date combination")
-
 
 def get_crypto_prices(
     symbols: Iterable[str],
@@ -221,7 +223,6 @@ def get_crypto_prices(
     df.attrs["currency_type"] = {col: "crypto" for col in df.columns}
 
     return df
-
 
 def get_fx_and_crypto(
     base: str,
@@ -411,7 +412,6 @@ def get_share_prices_2(
     start: datetime,
     end: datetime,
     base_currency: str = "GBP",
-    fx_rates: pd.DataFrame | None = None,
     vol_window: int = 20,
 ) -> pd.DataFrame:
     """
@@ -455,10 +455,7 @@ def get_share_prices_2(
             auto_adjust=False,
             progress=False,
         )
-        # try:
-        #     print(f"{debug_print()} [hist]:\n{hist}")
-        # except Exception as e:
-        #     print(f"{debug_print()} [FAILED] printing hist {type(e).__name__}: {e}")
+
         if hist.empty:
             continue
 
@@ -466,10 +463,6 @@ def get_share_prices_2(
             hist.columns = hist.columns.get_level_values(0)
 
         currency = yf_ticker.fast_info.get("currency").upper()
-        # try:
-        #     print(f"{debug_print()} [currency]:\n{currency}")
-        # except Exception as e:
-        #     print(f"{debug_print()} [FAILED] printing currency {type(e).__name__}: {e}")
 
         if currency is None:
             continue
@@ -518,9 +511,7 @@ def get_share_prices_2(
     out_temp.attrs["currency"] = currency_meta
     out_temp.attrs["base_currency"] = base_currency
     out_temp.attrs["vol_window"] = vol_window
-    # ===========================================================
-    # WORKS UNTIL THIS POINT
-    # ===========================================================
+
     currencies = list(set(currency_meta.values())) 
     try:
         fx = get_exchange_rates(
@@ -585,7 +576,6 @@ def get_share_prices_2(
     except Exception as e:
         print(f"{debug_print()} [FAILED] could not create MultiIndex {type(e).__name__}: {e}")        
     return out
-
 
 def convert_prices_to_base_currency(
     prices: pd.DataFrame,
@@ -658,7 +648,6 @@ def convert_prices_to_base_currency(
     )
 
     return out
-
 
 def plot_fx_timeseries(
     df: pd.DataFrame,
@@ -795,7 +784,17 @@ if __name__ == "__main__":
     shares = ['AAPL', 'RR.L', 'MSFT', 'NVDA', 'LDO.MI','4816.T']
 
     start_date = datetime(2024, 6, 1)
-    end_date = datetime(2025, 12, 29)
+    end_date = pd.Timestamp.today().normalize()
+
+    try:
+        ftse100 = get_ftse100()
+        ftse100["Yahoo_Ticker"] = ftse100["Ticker"] + ".L"
+
+        shares_lse = ftse100["Yahoo_Ticker"].to_list()
+
+
+    except Exception as e:
+        print(f"ERROR in ftse100 {type(e).__name__}: {e}")
 
     OLD_PROCESS = False
     if OLD_PROCESS == True:
@@ -861,11 +860,10 @@ if __name__ == "__main__":
     # print(f"rates:\n{rates}")
     try:
         df_shares2 = get_share_prices_2(
-        tickers=shares,
+        tickers=shares_lse,
         start=start_date,
         end=end_date,
         base_currency = base_currency,
-        fx_rates = rates,
         vol_window = 20,
     )
 
@@ -881,12 +879,40 @@ if __name__ == "__main__":
 
         plot_candles_with_volatility(
             df=df_shares2,
-            actions=actions_list,
+            actions=['RR.L_GBP→GBP'],
             start=df_shares2.index.min(),
             end=df_shares2.index.max()
         )
     except Exception as e:
-        print(f"{debug_print()} [FAILED] PLOT SHARE {type(e).__name__}: {e} ")
+        print(f"{debug_print()} [FAILED] PLOT SHARE {type(e).__name__}: {e} ")    
+    # ----------- PLOT SHARE - plot_candles_with_volatility_and_target ---------------
+    try:
+        actions_list   = df_shares2.columns.get_level_values("ACTION").unique().to_list()
+        currencies_list = df_shares2.columns.get_level_values("CURRENCY").unique()
+        metrics   = df_shares2.columns.get_level_values("METRIC").unique()
+
+        plt_vol_trg(
+            df=df_shares2,
+            actions=['RR.L_GBP→GBP'],
+            start=df_shares2.index.min(),
+            end=df_shares2.index.max()
+        )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] plt_vol_trg {type(e).__name__}: {e} ")    
+    # ----------- PLOT SHARE - plot_candles_volatility_volume_roi ---------------
+    try:
+        actions_list   = df_shares2.columns.get_level_values("ACTION").unique().to_list()
+        currencies_list = df_shares2.columns.get_level_values("CURRENCY").unique()
+        metrics   = df_shares2.columns.get_level_values("METRIC").unique()
+
+        ROI(
+            df=df_shares2,
+            actions=['RR.L_GBP→GBP'],
+            start=df_shares2.index.min(),
+            end=df_shares2.index.max()
+        )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] plot_candles_volatility_volume_roi {type(e).__name__}: {e} ")
 
     if OLD_PROCESS == True:
         df_shares = get_share_prices(

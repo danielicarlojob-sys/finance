@@ -267,6 +267,15 @@ def plot_candles_volatility_volume_roi(
         # ------------------------------------------------------------------
         if purchase_date is not None:
             purchase_date = pd.Timestamp(purchase_date)
+
+            idx = df.index
+
+            # Align timezone
+            if idx.tz is not None and purchase_date.tz is None:
+                purchase_date = purchase_date.tz_localize(idx.tz)
+            elif idx.tz is None and purchase_date.tz is not None:
+                purchase_date = purchase_date.tz_convert(None)
+
             valid_dates = sub.index[sub.index >= purchase_date]
             purchase_idx = (
                 None if valid_dates.empty else sub.index.get_loc(valid_dates[0])

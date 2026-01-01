@@ -48,9 +48,18 @@ def get_first_roi_hit(
     # Synthesize OPEN if needed (not strictly required for ROI)
     if "OPEN" not in sub.columns:
         sub["OPEN"] = sub["CLOSE"].shift(1)
+    if purchase_date is not None:
+        purchase_date = pd.Timestamp(purchase_date)
 
+        idx = df.index
+
+        # Align timezone
+        if idx.tz is not None and purchase_date.tz is None:
+            purchase_date = purchase_date.tz_localize(idx.tz)
+        elif idx.tz is None and purchase_date.tz is not None:
+            purchase_date = purchase_date.tz_convert(None)
     # Resolve purchase index
-    purchase_date = pd.Timestamp(purchase_date)
+
     valid_dates = sub.index[sub.index >= purchase_date]
     if valid_dates.empty:
         return None

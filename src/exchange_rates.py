@@ -781,6 +781,155 @@ def plot_fx_timeseries(
     plt.tight_layout()
     plt.show()
 
+"""
+### **1️⃣ EPS (Earnings Per Share)**
+
+* **Definition:** The portion of a company's profit allocated to each outstanding share of common stock.
+* **Formula:**
+  [
+  \text{EPS} = \frac{\text{Net Income – Preferred Dividends}}{\text{Number of Outstanding Shares}}
+  ]
+* **Interpretation:**
+
+  * Higher EPS usually indicates higher profitability per share.
+  * Used in the **P/E ratio**: `Price / EPS`.
+  * In our example `"EPS": 5` means each share “earned” $5 over the last reporting period.
+
+---
+
+### **2️⃣ Book Value**
+
+* **Definition:** The net asset value of a company, i.e., total assets minus total liabilities.
+* **Formula:**
+  [
+  \text{Book Value per Share} = \frac{\text{Total Assets – Total Liabilities}}{\text{Number of Outstanding Shares}}
+  ]
+* **Interpretation:**
+
+  * Gives a sense of the “intrinsic value” of a company.
+  * Used in **P/B ratio**: `Price / Book Value per Share`.
+  * In our example `"BookValue": 50` means each share represents £50 of net assets.
+
+---
+
+### **3️⃣ Dividend**
+
+* **Definition:** Cash paid to shareholders from profits.
+* **Interpretation:**
+
+  * Used to calculate **Dividend Yield**: `Dividend / Price`.
+  * Example `"Dividend": 1` means the company paid £1 per share over the last year.
+
+---
+
+### **How to get these numbers**
+
+1. **Company financial statements** (annual 10-K or quarterly 10-Q filings) — most reliable.
+2. **Financial APIs** like:
+
+   * Yahoo Finance: `yfinance.Ticker("AAPL").info` → contains `trailingEps`, `bookValue`, `dividendRate`.
+   * Alpha Vantage, Financial Modeling Prep, Morningstar.
+3. **Manually** from reports: net income, shares outstanding, total assets/liabilities, dividends paid.
+
+---
+
+### **Why we use them in the function**
+
+* EPS, Book Value, Dividend allow you to compute:
+
+  * **P/E ratio** = Price ÷ EPS → low P/E may indicate undervaluation.
+  * **P/B ratio** = Price ÷ Book Value → low P/B may indicate undervaluation.
+  * **Dividend Yield** = Dividend ÷ Price → higher yield may indicate undervaluation if sustainable.
+
+---
+
+If you want, I can **show you how to extend your `get_share_prices_2` function to fetch EPS, Book Value, Dividend directly from Yahoo Finance for each share**, so you don’t need to manually provide them.
+
+Do you want me to do that?
+
+"""
+
+
+@log_exceptions_with_retry(
+    max_retries=5,
+    prefix_fn=debug_print,
+    retry_delay=1.0,   # optional
+)
+def get_share_prices_2_with_fundamentals(
+    tickers: Iterable[str],
+    start: datetime,
+    end: datetime,
+    base_currency: str = "GBP",
+    vol_window: int = 20,
+) -> pd.DataFrame:
+    """
+    Retrieve daily share prices (OHLCV) with FX-normalized min/max, 
+    volatility, and fundamental metrics (EPS, Book Value, Dividend).
+
+    Parameters
+    ----------
+    tickers : Iterable[str]
+        Equity tickers
+    start, end : datetime
+        Date range (inclusive)
+    base_currency : str
+        Target currency for normalization
+    vol_window : int
+        Rolling window for volatility (in trading days)
+
+    Returns
+    -------
+    pd.DataFrame
+        MultiIndex DataFrame:
+        ACTION / CURRENCY / METRIC with daily price data and fundamentals
+    """
+    frames = []
+    currency_meta = {}
+
+    for ticker in tickers:
+        yf_ticker = yf.Ticker(ticker)
+
+        # --- Historical daily price data ---
+        hist = yf_ticker.history(start=start, end=end, interval="1d", auto_adjust=False)
+        if hist.empty:
+            continue
+
+        currency = yf_ticker.fast_info.currency.upper()
+        currency_meta[ticker] = currency
+
+        df = hist[['Low', 'High', 'Close', 'Volume']].copy()
+        df.index = pd.to_datetime(df.index).normalize()
+
+        # Derived metrics
+        df['RANGE'] = df['High'] - df['Low']
+        returns = df['Close'].pct_change()
+        df['VOLATILITY'] = returns.rolling(vol_window).std()
+        df.rename(columns={'Close': 'CLOSE', 'Low': 'LOW', 'High': 'HIGH', 'Volume': 'VOLUME'}, inplace=True)
+        df = df[['LOW','HIGH','CLOSE','RANGE','VOLATILITY','VOLUME']]
+
+        # Add fundamental metrics
+        info = yf_ticker.info
+        df['EPS'] = info.get('trailingEps', None)
+        df['BookValue'] = info.get('bookValue', None)
+        df['Dividend'] = info.get('dividendRate', None)
+
+        # Convert to MultiIndex: ACTION / CURRENCY / METRIC
+        df.columns = pd.MultiIndex.from_product(
+            [[ticker], [currency], df.columns],
+            names=['ACTION', 'CURRENCY', 'METRIC']
+        )
+        frames.append(df)
+
+    if not frames:
+        raise RuntimeError("No share price data retrieved")
+
+    out = pd.concat(frames, axis=1).sort_index()
+    out.attrs['currency'] = currency_meta
+    out.attrs['base_currency'] = base_currency
+    out.attrs['vol_window'] = vol_window
+
+    return out
+
 if __name__ == "__main__":
     base_currency = "GBP"
     target_currencies = ["USD", "GBP", "EUR", "JPY"]

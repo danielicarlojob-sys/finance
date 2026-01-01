@@ -1,7 +1,8 @@
 import pandas as pd
 import requests
 from io import StringIO
-
+from src.debug_print import debug_print
+from src.utils.retry_decorator import log_exceptions_with_retry
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -55,7 +56,11 @@ def get_aim_all_share() -> pd.DataFrame:
 
 
 
-
+@log_exceptions_with_retry(
+    max_retries=5,
+    prefix_fn=debug_print,
+    retry_delay=1.0,   # optional
+)
 def get_ftse100():
     url = "https://en.wikipedia.org/wiki/FTSE_100_Index"
     headers = {"User-Agent": "Mozilla/5.0"}

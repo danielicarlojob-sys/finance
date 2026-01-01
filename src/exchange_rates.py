@@ -11,6 +11,8 @@ from src.plot_shares import plot_candles_with_volatility
 from src.plot_shares_ROI import plot_candles_with_volatility_and_target as plt_vol_trg
 from src.plot_shares_ROI2 import plot_candles_volatility_volume_roi as ROI
 from src.fetch_lse_tickers import get_ftse100
+from src.debug_print import debug_print
+from src.utils.retry_decorator import log_exceptions_with_retry
 
 
 
@@ -407,6 +409,11 @@ def get_share_prices(
                                             )
     return df
 
+@log_exceptions_with_retry(
+    max_retries=5,
+    prefix_fn=debug_print,
+    retry_delay=1.0,   # optional
+)
 def get_share_prices_2(
     tickers: Iterable[str],
     start: datetime,

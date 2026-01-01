@@ -26,6 +26,8 @@ When you read both bar charts together:
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from src.debug_print import debug_print
+from src.utils.retry_decorator import log_exceptions_with_retry
 
 # ------------------------------------------------
 # HELPER function
@@ -40,6 +42,11 @@ def bind_axis_color(ax, color: str, label: str):
 # ------------------------------------------------
 # MAIN function
 # ------------------------------------------------
+@log_exceptions_with_retry(
+    max_retries=5,
+    prefix_fn=debug_print,
+    retry_delay=1.0,   # optional
+)
 def plot_candles_volatility_volume_roi(
     df: pd.DataFrame,
     actions: list[str] | None = None,

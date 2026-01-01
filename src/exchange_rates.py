@@ -7,9 +7,9 @@ from typing import Iterable, Optional, Dict, Union
 import matplotlib.pyplot as plt
 import yfinance as yf
 from src.debug_print import debug_print
-from src.plot_shares import plot_candles_with_volatility
-from src.plot_shares_ROI import plot_candles_with_volatility_and_target as plt_vol_trg
-from src.plot_shares_ROI2 import plot_candles_volatility_volume_roi as ROI
+from src.unused_functions.plot_shares import plot_candles_with_volatility
+from src.unused_functions.plot_shares_ROI import plot_candles_with_volatility_and_target as plt_vol_trg
+from src.unused_functions.plot_shares_ROI2 import plot_candles_volatility_volume_roi as ROI
 from src.fetch_lse_tickers import get_ftse100
 from src.debug_print import debug_print
 from src.utils.retry_decorator import log_exceptions_with_retry

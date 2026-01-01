@@ -27,7 +27,19 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-
+# ------------------------------------------------
+# HELPER function
+# ------------------------------------------------
+def bind_axis_color(ax, color: str, label: str):
+    """
+    Bind y-axis label, ticks, and spine color to a given artist color.
+    """
+    ax.set_ylabel(label, color=color)
+    ax.tick_params(axis="y", colors=color)
+    ax.spines["right"].set_color(color)
+# ------------------------------------------------
+# MAIN function
+# ------------------------------------------------
 def plot_candles_volatility_volume_roi(
     df: pd.DataFrame,
     actions: list[str] | None = None,
@@ -35,264 +47,329 @@ def plot_candles_volatility_volume_roi(
     end: pd.Timestamp | None = None,
     roi_target: float = 0.05,
     purchase_date: pd.Timestamp | None = None,
-    volume_col: str = "VOLUME"
+    volume_col: str = "VOLUME",
 ):
     """
-    Plot daily candlestick prices with:
-      - rolling volatility overlay
-      - volume bars
-      - purchase date marker (industry-standard)
-      - ROI target marker (industry-standard)
+    Plot candlestick price charts with volume, volatility overlay, and
+    buy/ROI markers for one or more financial instruments.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        MultiIndex DataFrame: (ACTION, CURRENCY, METRIC)
-    actions : list[str] | None
-        Subset of instruments to plot (default all)
-    start, end : pd.Timestamp | None
-        Filter dates
-    roi_target : float
-        Target ROI (5% default)
-    purchase_date : pd.Timestamp | None
-        Date at which the asset is assumed to be purchased.
-        If provided, ROI is evaluated relative to the CLOSE price on (or after)
-        this date. If None, the first available datapoint is used.
-    volume_col : str
-        Column name for volume
+    The function is designed for technical analysis and exploratory
+    decision support. It combines price action, trading activity
+    (volume), volatility regime, and a deterministic ROI trigger
+    into a single visualisation.
+
+    Args:
+        df (pd.DataFrame):
+            Input price data with a 3-level MultiIndex on columns:
+            (ACTION, CURRENCY, METRIC). The index must be datetime-like.
+
+        actions (list[str] | None):
+            List of ACTION identifiers to plot. If None, all available
+            ACTIONs in the DataFrame are plotted.
+
+        start (pd.Timestamp | None):
+            Optional start date for filtering the time series.
+
+        end (pd.Timestamp | None):
+            Optional end date for filtering the time series.
+
+        roi_target (float):
+            Target return on investment expressed as a fraction.
+            Example: 0.05 corresponds to a 5% ROI.
+
+        purchase_date (pd.Timestamp | None):
+            Date at which the asset is assumed to be purchased.
+            If provided, the first trading date on or after this
+            timestamp is used as the entry point.
+            If None, the first available data point is used.
+
+        volume_col (str):
+            Column name corresponding to traded volume.
+
+    Raises:
+        ValueError:
+            If the input DataFrame does not have exactly three column levels.
+
+        KeyError:
+            If required OHLC metrics are missing for a given ACTION.
+
+    Returns:
+        None:
+            The function produces Matplotlib figures as a side effect
+            and does not return any objects.
+
+    Notes:
+        - Candlestick color encodes daily price direction.
+        - Volume bars confirm or weaken price moves.
+        - Volatility is plotted on a separate y-axis and is assumed
+          to be dimensionless (e.g. rolling std of returns).
+        - ROI is triggered using CLOSE prices only (no intraday logic).
     """
+
     # ------------------------------------------------------------------
-    # Structural validation
+    # Validate expected MultiIndex structure
     # ------------------------------------------------------------------
     if df.columns.nlevels != 3:
         raise ValueError("Expected 3-level MultiIndex columns")
 
+    # Create a defensive copy to avoid mutating user data
     data = df.copy()
 
-    # Optional date filtering
+    # ------------------------------------------------------------------
+    # Optional date filtering on the index
+    # ------------------------------------------------------------------
     if start:
         data = data.loc[data.index >= pd.Timestamp(start)]
     if end:
         data = data.loc[data.index <= pd.Timestamp(end)]
 
-    # Resolve ACTIONs
+    # ------------------------------------------------------------------
+    # Resolve which ACTIONs will be plotted
+    # ------------------------------------------------------------------
     all_actions = data.columns.get_level_values("ACTION").unique()
-    if actions is None:
-        actions = all_actions
-    else:
-        missing = set(actions) - set(all_actions)
-        if missing:
-            raise KeyError(f"Unknown ACTION(s): {missing}")
+    actions = all_actions if actions is None else actions
 
     # ------------------------------------------------------------------
-    # One plot per ACTION
+    # Iterate over each selected ACTION independently
     # ------------------------------------------------------------------
     for action in actions:
+        # Extract data for the current ACTION
         sub = data[action]
 
-        # Drop currency level if present
+        # Drop currency level if still present
         if isinstance(sub.columns, pd.MultiIndex):
             sub = sub.droplevel("CURRENCY", axis=1)
 
-        # Ensure minimum OHLC data
+        # Ensure minimum required OHLC metrics exist
         required = {"LOW", "HIGH", "CLOSE"}
         if not required.issubset(sub.columns):
             raise KeyError(f"{action} missing required metrics {required}")
 
+        # Sort chronologically and drop empty rows
         sub = sub.sort_index().dropna(how="all")
         if sub.empty:
             continue
 
-        # Synthesize OPEN if missing
+        # Synthesize OPEN price if missing using previous CLOSE
         if "OPEN" not in sub.columns:
             sub["OPEN"] = sub["CLOSE"].shift(1)
 
-        # X-axis index for bar-based plotting
+        # Generate a numeric x-axis for bar-based plotting
         x = np.arange(len(sub))
         width = 0.6
 
+        # Create the main price axis
         fig, ax_price = plt.subplots(figsize=(15, 7))
 
         # ------------------------------------------------------------------
-        # Candlesticks
+        # Candlestick rendering (price action)
         # ------------------------------------------------------------------
-        for i, (_, row) in enumerate(sub.iterrows()):
-            if pd.isna(row["OPEN"]) or pd.isna(row["CLOSE"]):
+        for i, row in enumerate(sub.itertuples()):
+            # Skip bars with incomplete OHLC data
+            if pd.isna(row.OPEN) or pd.isna(row.CLOSE):
                 continue
 
-            color = "green" if row["CLOSE"] >= row["OPEN"] else "red"
+            # Green for up days, red for down days
+            color = "green" if row.CLOSE >= row.OPEN else "red"
 
-            # Wick
+            # Draw high–low wick
             ax_price.vlines(
                 x[i],
-                row["LOW"],
-                row["HIGH"],
+                row.LOW,
+                row.HIGH,
                 color=color,
                 linewidth=1,
-                zorder=1
+                zorder=1,
             )
 
-            # Body
+            # Draw open–close body
             ax_price.bar(
                 x[i],
-                row["CLOSE"] - row["OPEN"],
+                row.CLOSE - row.OPEN,
                 width,
-                bottom=row["OPEN"],
+                bottom=row.OPEN,
                 color=color,
                 alpha=0.7,
-                zorder=2
+                zorder=2,
             )
 
         # ------------------------------------------------------------------
-        # Volume (secondary axis)
+        # Volume axis (secondary y-axis)
         # ------------------------------------------------------------------
         if volume_col in sub.columns:
+            # Create a secondary y-axis sharing the same x-axis
             ax_vol = ax_price.twinx()
 
+            # Color volume bars by price direction
             vol_colors = [
                 "green" if c >= o else "red"
                 for o, c in zip(sub["OPEN"], sub["CLOSE"])
             ]
 
+            # Draw volume bars
             ax_vol.bar(
                 x,
                 sub[volume_col],
                 color=vol_colors,
                 alpha=0.3,
-                width=0.6,
-                zorder=0
+                width=width,
+                zorder=0,
             )
 
-            ax_vol.set_ylabel("Volume")
-            ax_vol.set_ylim(0, sub[volume_col].max() * 3)
+            # Bind axis styling to volume context
+            volume_axis_color = "darkgreen"
+            bind_axis_color(ax_vol, volume_axis_color, "Volume")
+
+            # Robust scaling using rolling 95th percentile
+            vol_upper = (
+                sub[volume_col]
+                .rolling(window=20, min_periods=5)
+                .quantile(0.95)
+                .max()
+            )
+
+            ax_vol.set_ylim(0, vol_upper * 1.5)
 
         # ------------------------------------------------------------------
-        # Volatility overlay (third axis)
+        # Volatility axis (third y-axis, offset outward)
         # ------------------------------------------------------------------
         if "VOLATILITY" in sub.columns:
             ax_vol2 = ax_price.twinx()
-            ax_vol2.plot(
+
+            # Offset the spine to avoid overlap with volume axis
+            ax_vol2.spines["right"].set_position(("outward", 60))
+
+            # Plot volatility time series
+            line, = ax_vol2.plot(
                 x,
                 sub["VOLATILITY"],
-                color="blue",
                 linestyle="--",
                 linewidth=2,
-                zorder=3
+                zorder=3,
             )
-            ax_vol2.set_ylabel("Volatility")
+
+            # Bind axis styling to the plotted line color
+            volatility_color = line.get_color()
+            bind_axis_color(ax_vol2, volatility_color, "Volatility")
+
+            # Disable grid on auxiliary axis
             ax_vol2.grid(False)
 
         # ------------------------------------------------------------------
-        # Resolve purchase index
+        # Resolve purchase index (entry point)
         # ------------------------------------------------------------------
         if purchase_date is not None:
             purchase_date = pd.Timestamp(purchase_date)
             valid_dates = sub.index[sub.index >= purchase_date]
-            purchase_idx = None if valid_dates.empty else sub.index.get_loc(valid_dates[0])
+            purchase_idx = (
+                None if valid_dates.empty else sub.index.get_loc(valid_dates[0])
+            )
         else:
             purchase_idx = 0
 
         # ------------------------------------------------------------------
-        # INDUSTRY-STANDARD ENTRY MARKER (BUY)
+        # BUY marker (entry signal)
         # ------------------------------------------------------------------
         if purchase_idx is not None:
             buy_price = sub["CLOSE"].iloc[purchase_idx]
 
+            # Plot buy marker
             ax_price.scatter(
-                            x[purchase_idx],
-                            buy_price,
-                            marker="^",          # ▲ Buy marker
-                            s=120,
-                            color="red",
-                            edgecolor="black",
-                            linewidth=0.8,
-                            zorder=11
-                        )
+                x[purchase_idx],
+                buy_price,
+                marker="^",
+                s=120,
+                color="red",
+                edgecolor="black",
+                linewidth=0.8,
+                zorder=11,
+            )
 
-
-            # Vertical entry line
+            # Vertical reference line at entry
             ax_price.axvline(
                 x=x[purchase_idx],
-                color="red",
+                color="black",
                 linestyle=":",
                 linewidth=2,
                 alpha=0.9,
-                zorder=9
             )
 
-            # Entry label near top of chart
+            # Annotate buy price
             ax_price.text(
                 x[purchase_idx],
                 sub["HIGH"].max(),
-                "BUY",
-                color="black",
-                fontsize=10,
+                f"BUY @ {buy_price:.2f}",
+                color="red",
                 ha="center",
                 va="bottom",
-                zorder=10
+                fontsize=10,
             )
 
         # ------------------------------------------------------------------
-        # INDUSTRY-STANDARD ROI MARKER (EXIT CONDITION)
+        # ROI exit marker
         # ------------------------------------------------------------------
         if purchase_idx is not None:
             target_price = buy_price * (1 + roi_target)
 
+            # Scan forward in time for first ROI hit
             for i in range(purchase_idx, len(sub)):
                 if sub["CLOSE"].iloc[i] >= target_price:
+                    exit_price = sub["CLOSE"].iloc[i]
+
+                    # Plot exit marker
                     ax_price.scatter(
                         x[i],
-                        sub["CLOSE"].iloc[i],
-                        marker="v",          # ▼ Exit marker
+                        exit_price,
+                        marker="v",
                         s=140,
                         color="lime",
                         edgecolor="green",
                         linewidth=0.8,
-                        zorder=11
+                        zorder=11,
                     )
 
+                    # Vertical reference line at exit
                     ax_price.axvline(
                         x=x[i],
                         color="lime",
                         linestyle=":",
                         linewidth=2,
                         alpha=0.9,
-                        zorder=9
                     )
 
+                    # Annotate ROI and exit price
                     ax_price.text(
                         x[i],
                         sub["HIGH"].max(),
-                        f"{roi_target * 100:.0f}% ROI",
-                        color="green",
-                        fontsize=10,
+                        f"{roi_target*100:.0f}% ROI @ {exit_price:.2f}",
                         ha="center",
                         va="bottom",
-                        zorder=10
+                        fontsize=10,
+                        color="green",
                     )
                     break
 
         # ------------------------------------------------------------------
-        # Formatting
+        # Final formatting and layout
         # ------------------------------------------------------------------
         step = max(len(x) // 10, 1)
+
         ax_price.set_xticks(x[::step])
         ax_price.set_xticklabels(
             sub.index.strftime("%Y-%m-%d")[::step],
             rotation=45,
-            ha="right"
+            ha="right",
         )
 
         ax_price.set_ylabel("Price")
-        ax_price.set_title(
-            f"{action} – Candlestick + Volatility + Volume + Entry & ROI"
-        )
+        ax_price.set_title(f"{action} – Price, Volume, Volatility & ROI")
         ax_price.grid(True, axis="y", alpha=0.3)
-        price_min = sub["LOW"].min()
-        price_max = sub["HIGH"].max()
 
-        ax_price.set_ylim(price_min * 0.98, price_max * 1.02)
-
+        # Add small vertical padding to price axis
+        ax_price.set_ylim(
+            sub["LOW"].min() * 0.98,
+            sub["HIGH"].max() * 1.02,
+        )
 
         plt.tight_layout()
         plt.show()

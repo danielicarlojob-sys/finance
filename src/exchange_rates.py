@@ -471,11 +471,8 @@ def get_share_prices_2(
 
         df = hist[["Close", "Low", "High", "Volume"]].copy()
         df.index = pd.to_datetime(df.index).normalize()
-    # =========================================================================
-    # SHARE VALUES EXTRACTED
-    # =========================================================================
+        # ---------- derived metrics ----------
         try:
-            # ---------- derived metrics ----------
             df["RANGE"] = df["High"] - df["Low"]
 
             returns = df["Close"].pct_change()

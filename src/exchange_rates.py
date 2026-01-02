@@ -15,7 +15,11 @@ from src.debug_print import debug_print
 from src.utils.retry_decorator import log_exceptions_with_retry
 
 
-
+@log_exceptions_with_retry(
+    max_retries=5,
+    prefix_fn=debug_print,
+    retry_delay=1.0,   # optional
+)
 def get_exchange_rates(
     base: str = "EUR",
     symbols: Optional[Iterable[str]] = None,
@@ -781,75 +785,6 @@ def plot_fx_timeseries(
     plt.tight_layout()
     plt.show()
 
-"""
-### **1️⃣ EPS (Earnings Per Share)**
-
-* **Definition:** The portion of a company's profit allocated to each outstanding share of common stock.
-* **Formula:**
-  [
-  \text{EPS} = \frac{\text{Net Income – Preferred Dividends}}{\text{Number of Outstanding Shares}}
-  ]
-* **Interpretation:**
-
-  * Higher EPS usually indicates higher profitability per share.
-  * Used in the **P/E ratio**: `Price / EPS`.
-  * In our example `"EPS": 5` means each share “earned” $5 over the last reporting period.
-
----
-
-### **2️⃣ Book Value**
-
-* **Definition:** The net asset value of a company, i.e., total assets minus total liabilities.
-* **Formula:**
-  [
-  \text{Book Value per Share} = \frac{\text{Total Assets – Total Liabilities}}{\text{Number of Outstanding Shares}}
-  ]
-* **Interpretation:**
-
-  * Gives a sense of the “intrinsic value” of a company.
-  * Used in **P/B ratio**: `Price / Book Value per Share`.
-  * In our example `"BookValue": 50` means each share represents £50 of net assets.
-
----
-
-### **3️⃣ Dividend**
-
-* **Definition:** Cash paid to shareholders from profits.
-* **Interpretation:**
-
-  * Used to calculate **Dividend Yield**: `Dividend / Price`.
-  * Example `"Dividend": 1` means the company paid £1 per share over the last year.
-
----
-
-### **How to get these numbers**
-
-1. **Company financial statements** (annual 10-K or quarterly 10-Q filings) — most reliable.
-2. **Financial APIs** like:
-
-   * Yahoo Finance: `yfinance.Ticker("AAPL").info` → contains `trailingEps`, `bookValue`, `dividendRate`.
-   * Alpha Vantage, Financial Modeling Prep, Morningstar.
-3. **Manually** from reports: net income, shares outstanding, total assets/liabilities, dividends paid.
-
----
-
-### **Why we use them in the function**
-
-* EPS, Book Value, Dividend allow you to compute:
-
-  * **P/E ratio** = Price ÷ EPS → low P/E may indicate undervaluation.
-  * **P/B ratio** = Price ÷ Book Value → low P/B may indicate undervaluation.
-  * **Dividend Yield** = Dividend ÷ Price → higher yield may indicate undervaluation if sustainable.
-
----
-
-If you want, I can **show you how to extend your `get_share_prices_2` function to fetch EPS, Book Value, Dividend directly from Yahoo Finance for each share**, so you don’t need to manually provide them.
-
-Do you want me to do that?
-
-"""
-
-
 @log_exceptions_with_retry(
     max_retries=5,
     prefix_fn=debug_print,
@@ -927,8 +862,69 @@ def get_share_prices_2_with_fundamentals(
     out.attrs['currency'] = currency_meta
     out.attrs['base_currency'] = base_currency
     out.attrs['vol_window'] = vol_window
+    # =============================================
+    # FX RATES implementation
+    # =============================================
+    currencies = list(set(currency_meta.values())) 
+    fx = get_exchange_rates(                    # ALREADY DECORATED WITH RETRY
+                            base=base_currency,
+                            symbols=currencies,
+                            start=start,
+                            end=end,
+                            )
+    # ---------- Align FX dates ----------
+    try:
+        fx = fx.reindex(out.index).ffill()
+        out_UPDATED = out.copy()
 
-    return out
+        currency_idx = out.columns.names.index("CURRENCY")
+        action_idx = out.columns.names.index("ACTION")
+        metric_idx = out.columns.names.index("METRIC")
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not Align FX dates {type(e).__name__}: {e}")
+    # ---------- numeric conversion ----------
+    try:
+        for col in out_UPDATED.columns:
+            currency = col[currency_idx]
+
+            if currency == base_currency:
+                continue
+
+            fx_col = f"{base_currency}/{currency}"
+            if fx_col not in fx.columns:
+                raise KeyError(f"Missing FX rate: {fx_col}")
+
+            out_UPDATED[col] = out[col] / fx[fx_col]
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not perform numeric conversion {type(e).__name__}: {e}")
+
+    # ---------- relabel columns ----------
+    try:
+        new_columns = []
+
+        for col in out_UPDATED.columns:
+            action = col[action_idx]
+            orig_ccy = col[currency_idx]
+            metric = col[metric_idx]
+
+            new_action = f"{action}_{orig_ccy}→{base_currency}"
+
+            new_columns.append(
+                (new_action, base_currency, metric)
+            )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not relabel columns {type(e).__name__}: {e}")
+    # ---------- MultiIndex ----------
+    try:
+        out_UPDATED.columns = pd.MultiIndex.from_tuples(
+            new_columns,
+            names=["ACTION", "CURRENCY", "METRIC"]
+        )
+    except Exception as e:
+        print(f"{debug_print()} [FAILED] could not create MultiIndex {type(e).__name__}: {e}")   
+
+
+    return out_UPDATED
 
 if __name__ == "__main__":
     base_currency = "GBP"

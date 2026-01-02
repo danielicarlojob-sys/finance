@@ -331,11 +331,11 @@ def plot_candles_volatility_volume_roi(
             )
 
             # Annotate buy price
-            y_position_to_avoid_text_overlap = sub["HIGH"].max() * 0.95
+            y_position_to_avoid_text_overlap_purchase = sub["HIGH"].max() * 0.85
 
             ax_price.text(
                 x[purchase_idx],
-                y_position_to_avoid_text_overlap,
+                y_position_to_avoid_text_overlap_purchase,
                 f"BUY @ {buy_price:.2f}",
                 color="red",
                 ha="center",
@@ -355,7 +355,7 @@ def plot_candles_volatility_volume_roi(
             for i in range(purchase_idx, len(sub)):
                 if sub["CLOSE"].iloc[i] >= target_price:
                     exit_price = sub["CLOSE"].iloc[i]
-
+                    days_to_achieve_ROI = x[i] - x[purchase_idx]
                     # Plot exit marker
                     ax_price.scatter(
                         x[i],
@@ -376,12 +376,13 @@ def plot_candles_volatility_volume_roi(
                         linewidth=2,
                         alpha=0.9,
                     )
+                    y_position_to_avoid_text_overlap_ROI = sub["HIGH"].max() * 0.95
 
                     # Annotate ROI and exit price
                     ax_price.text(
                         x[i],
-                        sub["HIGH"].max(),
-                        f"{roi_target*100:.0f}% ROI @ {exit_price:.2f}",
+                        y_position_to_avoid_text_overlap_ROI,
+                        f"{roi_target*100:.0f}% ROI @ {exit_price:.2f}\nDAYS FROM PURCHASE: {days_to_achieve_ROI:.0f}",
                         ha="center",
                         va="bottom",
                         fontsize=10,

@@ -1,13 +1,121 @@
 import os
+import pandas as pd
+from datetime import datetime        # Datetime handling
+from typing import Iterable, Optional
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
 import mimetypes
 from dotenv import load_dotenv
 
+
+
+
 load_dotenv()
 email_sender = os.getenv("EMAIL_SENDER")
 email_sender_psw = os.getenv("EMAIL_SENDER_PSW")
+# ==================================
+# HELPER FUNCTION
+# ==================================
+
+def email_text_body_single_action(data:pd.DataFrame)->str: 
+
+    currency = data['ACTION'].split("→")[1]
+    body += f"\n    Action: {data['ACTION']} - target ROI:{data['SET ROI TARGET']*100}%"
+    body += f"\n        Purchase Date: {data['PURCHASE DATE'].strftime("%d-%m-%Y %H:%M")}"
+    body += f"\n        Purchase Price: {round(data['PURCHASE PRICE'], 2)} {currency}"
+    body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"
+    body += f"\n        Suggested Sell Price: {round(data['EXIT ACTION PRICE'], 2)} {currency}"
+    body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"           
+    body += f"\n        Days to achieve set ROI: {data['DATE TO ACHIEVE TARGET']}\n\n"
+
+    return body
+
+def build_html_body(report_text: str) -> str:
+    # Escape basic HTML chars if needed, then replace newlines
+    escaped = (report_text
+               .replace("&", "&amp;")
+               .replace("<", "&lt;")
+               .replace(">", "&gt;"))
+    html_content = escaped.replace("\n", "<br>\n")
+    HTML_body = f"""\
+<html>
+  <body>
+    <p>Data extracted report:</p>
+    <div style="font-family: Arial, sans-serif; white-space: pre-wrap;">
+      {html_content}
+    </div>
+  </body>
+</html>
+"""
+    return HTML_body
+
+def build_roi_email_content(roi_data: dict) -> tuple[str, str]:
+    """
+    Returns (text_body, html_body)
+    """
+
+    now = datetime.today().strftime("%d-%m-%Y %H:%M")
+
+    text_lines = [f"Data extracted on {now}\n"]
+    html_rows = []
+
+    for ac, data in roi_data.items():
+        currency = data["ACTION"].split("→")[1]
+
+        text_lines.extend([
+            f"Action: {ac}",
+            f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
+            f"  Purchase date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
+            f"  Purchase price: {data['PURCHASE PRICE']:.2f} {currency}",
+            f"  Sell date: {data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}",
+            f"  Sell price: {data['EXIT ACTION PRICE']:.2f} {currency}",
+            f"  Time to target: {data['DATE TO ACHIEVE TARGET']}",
+            "",
+        ])
+
+        html_rows.append(f"""
+        <tr>
+            <td><b>{ac}</b></td>
+            <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
+            <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+            <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+            <td>{data['DATE TO ACHIEVE TARGET']}</td>
+        </tr>
+        """)
+
+    text_body = "\n".join(text_lines)
+
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif;">
+        <h2>ROI Target Reached</h2>
+        <p>Data extracted on <b>{now}</b></p>
+
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr style="background:#f0f0f0;">
+                <th>Action</th>
+                <th>Target ROI</th>
+                <th>Buy Price</th>
+                <th>Sell Price</th>
+                <th>Time to Target</th>
+            </tr>
+            {''.join(html_rows)}
+        </table>
+
+        <br>
+        <p><b>Price evolution:</b></p>
+        <img src="cid:image1" style="max-width:800px;">
+    </body>
+    </html>
+    """
+
+    return text_body, html_body
+
+
+# ==================================
+# MAIN FUNCTION
+# ==================================
 
 
 def send_email_with_image(
@@ -80,11 +188,168 @@ def send_email_with_image(
         server.login(username, password)
         server.send_message(msg)
 
+def send_email_html_inline_image(
+    *,
+    smtp_server: str,
+    smtp_port: int,
+    username: str,
+    password: str,
+    sender: str,
+    recipients: list[str],
+    subject: str,
+    text_body: str,
+    html_body: str,
+    inline_image_path: Path | str | None = None,
+    attachments: Optional[Iterable[Path | str]] = None,
+):
+    """
+    Send an email with:
+      - plain-text fallback
+      - HTML body
+      - optional inline image (CID)
+      - optional multiple file attachments
+    """
+
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+
+    # Plain text fallback
+    msg.set_content(text_body)
+
+    # HTML version
+    msg.add_alternative(html_body, subtype="html")
+
+    # Inline image
+    if inline_image_path is not None:
+        inline_image_path = Path(inline_image_path)
+        if not inline_image_path.exists():
+            raise FileNotFoundError(f"Inline image not found: {inline_image_path}")
+
+        mime_type, _ = mimetypes.guess_type(inline_image_path)
+        if mime_type is None:
+            raise ValueError("Could not infer MIME type for inline image")
+
+        maintype, subtype = mime_type.split("/")
+
+        with open(inline_image_path, "rb") as f:
+            msg.get_payload()[-1].add_related(
+                f.read(),
+                maintype=maintype,
+                subtype=subtype,
+                cid="image1",   # referenced in HTML as cid:image1
+            )
+
+    # File attachments
+    if attachments:
+        for attachment in attachments:
+            attachment = Path(attachment)
+            if not attachment.exists():
+                raise FileNotFoundError(f"Attachment not found: {attachment}")
+
+            mime_type, _ = mimetypes.guess_type(attachment)
+            if mime_type is None:
+                raise ValueError(f"Could not infer MIME type for {attachment}")
+
+            maintype, subtype = mime_type.split("/")
+
+            with open(attachment, "rb") as f:
+                msg.add_attachment(
+                    f.read(),
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=attachment.name,
+                )
+
+    # Send
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(username, password)
+        server.send_message(msg)
+
+
+
 if __name__ == "__main__":
     load_dotenv()
     email_sender = os.getenv("EMAIL_SENDER")
     email_user = os.getenv("EMAIL_USER")
     email_sender_psw = os.getenv("EMAIL_SENDER_PSW")
+    file_example = {   
+    'AAL': {   'ACTION': 'AAL.L_GBP→GBP',
+            'DATE TARGET MET': pd.Timestamp('2025-09-09 00:00:00+0100', tz='Europe/London'),
+            'DATE TO ACHIEVE TARGET': pd.Timedelta('100 days 00:00:00'),
+            'EXIT ACTION PRICE': 2490.0,
+            'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+            'PURCHASE PRICE': 2220.0,
+            'SET ROI TARGET': 0.1},
+    'BRBY': {   'ACTION': 'BRBY.L_GBP→GBP',
+                'DATE TARGET MET': pd.Timestamp('2025-06-27 00:00:00+0100', tz='Europe/London'),
+                'DATE TO ACHIEVE TARGET': pd.Timedelta('26 days 00:00:00'),
+                'EXIT ACTION PRICE': 1150.0,
+                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+                'PURCHASE PRICE': 1045.0,
+                'SET ROI TARGET': 0.1},
+    'CNA': {   'ACTION': 'CNA.L_GBP→GBP',
+               'DATE TARGET MET': pd.Timestamp('2025-10-14 00:00:00+0100', tz='Europe/London'),
+               'DATE TO ACHIEVE TARGET': pd.Timedelta('135 days 00:00:00'),
+               'EXIT ACTION PRICE': 173.0,
+               'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+               'PURCHASE PRICE': 157.14999389648438,
+               'SET ROI TARGET': 0.1},
+    'ENT': {   'ACTION': 'ENT.L_GBP→GBP',
+               'DATE TARGET MET': pd.Timestamp('2025-06-16 00:00:00+0100', tz='Europe/London'),
+               'DATE TO ACHIEVE TARGET': pd.Timedelta('15 days 00:00:00'),
+               'EXIT ACTION PRICE': 866.0,
+               'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+               'PURCHASE PRICE': 749.4000244140625,
+               'SET ROI TARGET': 0.1},
+    'GLEN': {   'ACTION': 'GLEN.L_GBP→GBP',
+                'DATE TARGET MET': pd.Timestamp('2025-07-23 00:00:00+0100', tz='Europe/London'),
+                'DATE TO ACHIEVE TARGET': pd.Timedelta('52 days 00:00:00'),
+                'EXIT ACTION PRICE': 326.45001220703125,
+                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+                'PURCHASE PRICE': 284.79998779296875,
+                'SET ROI TARGET': 0.1},
+    'MNG': {   'ACTION': 'MNG.L_GBP→GBP',
+               'DATE TARGET MET': pd.Timestamp('2025-08-11 00:00:00+0100', tz='Europe/London'),
+               'DATE TO ACHIEVE TARGET': pd.Timedelta('71 days 00:00:00'),
+               'EXIT ACTION PRICE': 263.6000061035156,
+               'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+               'PURCHASE PRICE': 239.39999389648438,
+               'SET ROI TARGET': 0.1},
+    'PHNX': {   'ACTION': 'PHNX.L_GBP→GBP',
+                'DATE TARGET MET': pd.Timestamp('2025-12-17 00:00:00+0000', tz='Europe/London'),
+                'DATE TO ACHIEVE TARGET': pd.Timedelta('199 days 01:00:00'),
+                'EXIT ACTION PRICE': 719.0,
+                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+                'PURCHASE PRICE': 644.5,
+                'SET ROI TARGET': 0.1},
+    'VOD': {   'ACTION': 'VOD.L_GBP→GBP',
+               'DATE TARGET MET': pd.Timestamp('2025-07-24 00:00:00+0100', tz='Europe/London'),
+               'DATE TO ACHIEVE TARGET': pd.Timedelta('53 days 00:00:00'),
+               'EXIT ACTION PRICE': 86.0199966430664,
+               'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
+               'PURCHASE PRICE': 76.77999877929688,
+               'SET ROI TARGET': 0.1}
+               }
+    
+    body = f"Data extracted on {datetime.today().strftime("%d-%m-%Y %H:%M")}\n"
+    for ac, data in file_example.items():
+        try:
+            currency = data['ACTION'].split("→")[1]
+            body += f"\n    Action: {data['ACTION']} - target ROI:{data['SET ROI TARGET']*100}%"
+            body += f"\n        Purchase Date: {data['PURCHASE DATE'].strftime("%d-%m-%Y %H:%M")}"
+            body += f"\n        Purchase Price: {round(data['PURCHASE PRICE'], 2)} {currency}"
+            body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"
+            body += f"\n        Suggested Sell Price: {round(data['EXIT ACTION PRICE'], 2)} {currency}"
+            body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"           
+            body += f"\n        Days to achieve set ROI: {data['DATE TO ACHIEVE TARGET']}\n\n"
+            
+
+        except Exception as e:
+            print(f"ERROR constructing body for email for action {ac} {type(e).__name__}: {e}")
+
 
     try:
         send_email_with_image(
@@ -94,8 +359,8 @@ if __name__ == "__main__":
             password=email_sender_psw,
             sender=email_sender,
             recipients=["ingcarldan@gmail.com"],
-            subject="ROI target reached",
-            body="The attached chart shows the BUY and ROI exit points.",
+            subject=f"ROI target reached on {datetime.today().strftime("%d-%m-%Y %H:%M")}",
+            body=body,
             image_path="output.png",
         )
     except Exception as e:

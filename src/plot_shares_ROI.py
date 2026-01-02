@@ -24,6 +24,7 @@ When you read both bar charts together:
     → noise, low informational content
 """
 import matplotlib.pyplot as plt
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from src.debug_print import debug_print
@@ -341,6 +342,7 @@ def plot_candles_volatility_volume_roi(
                 ha="center",
                 va="bottom",
                 fontsize=10,
+                zorder=12,
             )
 
 
@@ -387,6 +389,7 @@ def plot_candles_volatility_volume_roi(
                         va="bottom",
                         fontsize=10,
                         color="green",
+                        zorder=12,
                     )
  
                     break
@@ -414,7 +417,16 @@ def plot_candles_volatility_volume_roi(
         )
 
         plt.tight_layout()
+        # -------------- SAVE PLOT --------------
+        output_dir = Path("output")
+        output_dir.mkdir(exist_ok=True)
+
+        filename = output_dir / f"{action.replace('/', '_')}_ROI.png"
+        plt.savefig(filename, dpi=150, bbox_inches="tight")
         plt.show()
+        plt.close(fig)
+
+
 
 if __name__ == "__main__":
     df_shares2 = pd.read_csv('df_shares2.csv')

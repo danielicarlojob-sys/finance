@@ -39,6 +39,26 @@ def bind_axis_color(ax, color: str, label: str):
     ax.set_ylabel(label, color=color)
     ax.tick_params(axis="y", colors=color)
     ax.spines["right"].set_color(color)
+
+def annotate_with_offset(ax, x, y, text, color, offset_idx=0):
+    """
+    Place annotation with a vertical offset to avoid overlap.
+    offset_idx is an integer (0, 1, 2, ...)
+    """
+    y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+    offset = y_range * 0.03 * offset_idx  # 3% per level
+
+    ax.text(
+        x,
+        y + offset,
+        text,
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        color=color,
+        zorder=12,
+    )
+
 # ------------------------------------------------
 # MAIN function
 # ------------------------------------------------
@@ -311,15 +331,19 @@ def plot_candles_volatility_volume_roi(
             )
 
             # Annotate buy price
+            y_position_to_avoid_text_overlap = sub["HIGH"].max() * 0.95
+
             ax_price.text(
                 x[purchase_idx],
-                sub["HIGH"].max(),
+                y_position_to_avoid_text_overlap,
                 f"BUY @ {buy_price:.2f}",
                 color="red",
                 ha="center",
                 va="bottom",
                 fontsize=10,
             )
+
+
 
         # ------------------------------------------------------------------
         # ROI exit marker
@@ -363,6 +387,7 @@ def plot_candles_volatility_volume_roi(
                         fontsize=10,
                         color="green",
                     )
+ 
                     break
 
         # ------------------------------------------------------------------

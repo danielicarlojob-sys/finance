@@ -79,7 +79,9 @@ def build_roi_email_content(roi_data: dict) -> tuple[str, str]:
             <td><b>{ac}</b></td>
             <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
             <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+            <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
             <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+            <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
             <td>{data['DATE TO ACHIEVE TARGET']}</td>
         </tr>
         """)
@@ -97,7 +99,9 @@ def build_roi_email_content(roi_data: dict) -> tuple[str, str]:
                 <th>Action</th>
                 <th>Target ROI</th>
                 <th>Buy Price</th>
+                <th>Buy Date</th>
                 <th>Sell Price</th>
+                <th>Sell Date</th>
                 <th>Time to Target</th>
             </tr>
             {''.join(html_rows)}
@@ -351,7 +355,9 @@ def build_roi_email_with_action_images(
             <td><b>{action}</b></td>
             <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
             <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+            <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
             <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+            <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
             <td>{data['DATE TO ACHIEVE TARGET']}</td>
         </tr>
         """)
@@ -384,7 +390,9 @@ def build_roi_email_with_action_images(
                 <th>Action</th>
                 <th>Target ROI</th>
                 <th>Buy Price</th>
+                <th>Buy Date</th>
                 <th>Sell Price</th>
+                <th>Sell Date</th>
                 <th>Time to Target</th>
             </tr>
             {''.join(table_rows)}

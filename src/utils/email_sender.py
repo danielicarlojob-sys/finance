@@ -27,7 +27,7 @@ def email_text_body_single_action(data:pd.DataFrame)->str:
     body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"
     body += f"\n        Suggested Sell Price: {round(data['EXIT ACTION PRICE'], 2)} {currency}"
     body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"           
-    body += f"\n        Days to achieve set ROI: {data['DATE TO ACHIEVE TARGET']}\n\n"
+    body += f"\n        Days to achieve set ROI: {data['DAYS TO ACHIEVE TARGET']}\n\n"
 
     return body
 
@@ -70,7 +70,7 @@ def build_roi_email_content(roi_data: dict) -> tuple[str, str]:
             f"  Purchase price: {data['PURCHASE PRICE']:.2f} {currency}",
             f"  Sell date: {data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}",
             f"  Sell price: {data['EXIT ACTION PRICE']:.2f} {currency}",
-            f"  Time to target: {data['DATE TO ACHIEVE TARGET']}",
+            f"  Time to target: {data['DAYS TO ACHIEVE TARGET']}",
             "",
         ])
 
@@ -82,7 +82,7 @@ def build_roi_email_content(roi_data: dict) -> tuple[str, str]:
             <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
             <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
             <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
-            <td>{data['DATE TO ACHIEVE TARGET']}</td>
+            <td>{data['DAYS TO ACHIEVE TARGET']}</td>
         </tr>
         """)
 
@@ -272,11 +272,11 @@ def send_email_html_inline_image(
         server.login(username, password)
         server.send_message(msg)
 
-@log_exceptions_with_retry(
-    max_retries=5,
-    prefix_fn=debug_print,
-    retry_delay=1.0,   # optional
-)
+# @log_exceptions_with_retry(
+#     max_retries=5,
+#     prefix_fn=debug_print,
+#     retry_delay=1.0,   # optional
+# )
 def build_roi_email_with_action_images(
     roi_data: dict,
     image_dir: Path | str | None = None,
@@ -294,7 +294,7 @@ def build_roi_email_with_action_images(
               - SET ROI TARGET (float): target ROI (e.g. 0.1 for 10%)
               - PURCHASE PRICE (float): buy price
               - EXIT ACTION PRICE (float): sell price at ROI target
-              - DATE TO ACHIEVE TARGET (Timedelta): elapsed time to reach ROI
+              - DAYS TO ACHIEVE TARGET (Timedelta): elapsed time to reach ROI
 
         image_dir (Path | str | None):
             Optional directory containing per-action images named
@@ -336,75 +336,157 @@ def build_roi_email_with_action_images(
     image_dir = Path(image_dir) if image_dir else None
 
     for action, data in roi_data.items():
-        currency = data["ACTION"].split("→")[1]
-        cid = f"{action}_img"
+        # ROI MET
+        if data['DATE TARGET MET'] != None:
 
-        # --- TEXT BODY ---
-        text_lines.extend([
-            f"Action: {action}",
-            f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
-            f"  Purchase: {data['PURCHASE PRICE']:.2f} {currency}",
-            f"  Exit: {data['EXIT ACTION PRICE']:.2f} {currency}",
-            f"  Time to target: {data['DATE TO ACHIEVE TARGET']}",
-            "",
-        ])
+            if isinstance(data['PURCHASE DATE'], str):
+                data['PURCHASE DATE'] = pd.to_datetime(data['PURCHASE DATE'], format="%d/%m/%Y")
+                print(f"{debug_print()}→ Converted data['PURCHASE DATE'] from str to {type(pd.to_datetime(data['PURCHASE DATE']))} {pd.to_datetime(data['PURCHASE DATE'])}")            
+            if isinstance(data['DATE TARGET MET'], str):
+                data['DATE TARGET MET'] = pd.to_datetime(data['DATE TARGET MET'], format="%d/%m/%Y")
+                print(f"{debug_print()}→ Converted data['DATE TARGET MET'] from str to {type(pd.to_datetime(data['DATE TARGET MET']))} {pd.to_datetime(data['DATE TARGET MET'])}")            
+            
+            currency = data["ACTION"].split("→")[1]
+            cid = f"{action}_img"
 
-        # --- TABLE ---
-        table_rows.append(f"""
-        <tr>
-            <td><b>{action}</b></td>
-            <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
-            <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
-            <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
-            <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
-            <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
-            <td>{data['DATE TO ACHIEVE TARGET']}</td>
-        </tr>
-        """)
+            # --- TEXT BODY ---
+            text_lines.extend([
+                f"Action: {action}",
+                f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
+                f"  Purchase Price: {data['PURCHASE PRICE']:.2f} {currency}",
+                f"  Purchase Date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
+                f"  Exit Price: {data['EXIT ACTION PRICE']:.2f} {currency}",
+                f"  Exit Date: {data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}",                
+                f"  Time to target: {data['DAYS TO ACHIEVE TARGET']}",
+                "",
+            ])
 
-        # --- IMAGE RESOLUTION ---
-        img_path = None
-        if image_map and action in image_map:
-            img_path = image_map[action]
-        elif image_dir:
-            candidate = image_dir / f"{data['ACTION']}_ROI.png"
-            # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
-            if candidate.exists():
-                img_path = candidate
-
-        if img_path:
-            inline_images[cid] = img_path
-            image_sections.append(f"""
-            <h4>{action} – Price evolution</h4>
-            <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+            # --- TABLE ---
+            table_rows.append(f"""
+            <tr>
+                <td><b>{action}</b></td>
+                <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
+                <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+                <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
+                <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+                <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
+                <td>{data['DAYS TO ACHIEVE TARGET']}</td>
+            </tr>
             """)
 
-    html_body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif;">
-        <h2>ROI targets reached</h2>
-        <p>Data extracted on <b>{now}</b></p>
+            # --- IMAGE RESOLUTION ---
+            img_path = None
+            if image_map and action in image_map:
+                img_path = image_map[action]
+            elif image_dir:
+                candidate = image_dir / f"{data['ACTION']}_ROI.png"
+                # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
+                if candidate.exists():
+                    img_path = candidate
 
-        <table border="1" cellpadding="6" cellspacing="0">
-            <tr style="background:#f0f0f0;">
-                <th>Action</th>
-                <th>Target ROI</th>
-                <th>Buy Price</th>
-                <th>Buy Date</th>
-                <th>Sell Price</th>
-                <th>Sell Date</th>
-                <th>Time to Target</th>
+            if img_path:
+                inline_images[cid] = img_path
+                image_sections.append(f"""
+                <h4>{action} – Price evolution</h4>
+                <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+                """)
+
+            html_body = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <h2>ROI targets reached</h2>
+                <p>Data extracted on <b>{now}</b></p>
+
+                <table border="1" cellpadding="6" cellspacing="0">
+                    <tr style="background:#f0f0f0;">
+                        <th>Action</th>
+                        <th>Target ROI</th>
+                        <th>Buy Price</th>
+                        <th>Buy Date</th>
+                        <th>Sell Price</th>
+                        <th>Sell Date</th>
+                        <th>Time to Target</th>
+                    </tr>
+                    {''.join(table_rows)}
+                </table>
+
+                <hr>
+                {''.join(image_sections)}
+            </body>
+            </html>
+            """
+        else:
+            
+            if isinstance(data['PURCHASE DATE'], str):
+                data['PURCHASE DATE'] = pd.to_datetime(data['PURCHASE DATE'], format="%d/%m/%Y")
+                print(f"{debug_print()}→ Converted data['PURCHASE DATE'] from str to {type(pd.to_datetime(data['PURCHASE DATE']))} {pd.to_datetime(data['PURCHASE DATE'])}")            
+             
+            currency = data["ACTION"].split("→")[1]
+            cid = f"{action}_img"
+
+            # --- TEXT BODY ---
+            text_lines.extend([
+                f"Action: {action}",
+                f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
+                f"  Purchase: {data['PURCHASE PRICE']:.2f} {currency}",
+                f"  Purchase Date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
+                f"  Exit: {data['EXIT ACTION PRICE']:.2f} {currency}",
+                "",
+            ])
+
+            # --- TABLE ---
+            table_rows.append(f"""
+            <tr>
+                <td><b>{action}</b></td>
+                <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
+                <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+                <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
+                <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+
             </tr>
-            {''.join(table_rows)}
-        </table>
+            """)
 
-        <hr>
-        {''.join(image_sections)}
-    </body>
-    </html>
-    """
+            # --- IMAGE RESOLUTION ---
+            img_path = None
+            if image_map and action in image_map:
+                img_path = image_map[action]
+            elif image_dir:
+                candidate = image_dir / f"{data['ACTION']}_ROI.png"
+                # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
+                if candidate.exists():
+                    img_path = candidate
 
-    return "\n".join(text_lines), html_body, inline_images
+            if img_path:
+                inline_images[cid] = img_path
+                image_sections.append(f"""
+                <h4>{action} – Price evolution</h4>
+                <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+                """)
+
+            html_body = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <h2>ROI targets reached</h2>
+                <p>Data extracted on <b>{now}</b></p>
+
+                <table border="1" cellpadding="6" cellspacing="0">
+                    <tr style="background:#f0f0f0;">
+                        <th>Action</th>
+                        <th>Target ROI</th>
+                        <th>Buy Price</th>
+                        <th>Buy Date</th>
+                        <th>Sell Price</th>
+                    </tr>
+                    {''.join(table_rows)}
+                </table>
+
+                <hr>
+                {''.join(image_sections)}
+            </body>
+            </html>
+            """
+
+        return "\n".join(text_lines), html_body, inline_images
 
 @log_exceptions_with_retry(
     max_retries=5,
@@ -498,56 +580,56 @@ if __name__ == "__main__":
     file_example = {   
     'AAL': {   'ACTION': 'AAL.L_GBP→GBP',
             'DATE TARGET MET': pd.Timestamp('2025-09-09 00:00:00+0100', tz='Europe/London'),
-            'DATE TO ACHIEVE TARGET': pd.Timedelta('100 days 00:00:00'),
+            'DAYS TO ACHIEVE TARGET': pd.Timedelta('100 days 00:00:00'),
             'EXIT ACTION PRICE': 2490.0,
             'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
             'PURCHASE PRICE': 2220.0,
             'SET ROI TARGET': 0.1},
     'BRBY': {   'ACTION': 'BRBY.L_GBP→GBP',
                 'DATE TARGET MET': pd.Timestamp('2025-06-27 00:00:00+0100', tz='Europe/London'),
-                'DATE TO ACHIEVE TARGET': pd.Timedelta('26 days 00:00:00'),
+                'DAYS TO ACHIEVE TARGET': pd.Timedelta('26 days 00:00:00'),
                 'EXIT ACTION PRICE': 1150.0,
                 'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                 'PURCHASE PRICE': 1045.0,
                 'SET ROI TARGET': 0.1},
     'CNA': {   'ACTION': 'CNA.L_GBP→GBP',
                'DATE TARGET MET': pd.Timestamp('2025-10-14 00:00:00+0100', tz='Europe/London'),
-               'DATE TO ACHIEVE TARGET': pd.Timedelta('135 days 00:00:00'),
+               'DAYS TO ACHIEVE TARGET': pd.Timedelta('135 days 00:00:00'),
                'EXIT ACTION PRICE': 173.0,
                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                'PURCHASE PRICE': 157.14999389648438,
                'SET ROI TARGET': 0.1},
     'ENT': {   'ACTION': 'ENT.L_GBP→GBP',
                'DATE TARGET MET': pd.Timestamp('2025-06-16 00:00:00+0100', tz='Europe/London'),
-               'DATE TO ACHIEVE TARGET': pd.Timedelta('15 days 00:00:00'),
+               'DAYS TO ACHIEVE TARGET': pd.Timedelta('15 days 00:00:00'),
                'EXIT ACTION PRICE': 866.0,
                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                'PURCHASE PRICE': 749.4000244140625,
                'SET ROI TARGET': 0.1},
     'GLEN': {   'ACTION': 'GLEN.L_GBP→GBP',
                 'DATE TARGET MET': pd.Timestamp('2025-07-23 00:00:00+0100', tz='Europe/London'),
-                'DATE TO ACHIEVE TARGET': pd.Timedelta('52 days 00:00:00'),
+                'DAYS TO ACHIEVE TARGET': pd.Timedelta('52 days 00:00:00'),
                 'EXIT ACTION PRICE': 326.45001220703125,
                 'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                 'PURCHASE PRICE': 284.79998779296875,
                 'SET ROI TARGET': 0.1},
     'MNG': {   'ACTION': 'MNG.L_GBP→GBP',
                'DATE TARGET MET': pd.Timestamp('2025-08-11 00:00:00+0100', tz='Europe/London'),
-               'DATE TO ACHIEVE TARGET': pd.Timedelta('71 days 00:00:00'),
+               'DAYS TO ACHIEVE TARGET': pd.Timedelta('71 days 00:00:00'),
                'EXIT ACTION PRICE': 263.6000061035156,
                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                'PURCHASE PRICE': 239.39999389648438,
                'SET ROI TARGET': 0.1},
     'PHNX': {   'ACTION': 'PHNX.L_GBP→GBP',
                 'DATE TARGET MET': pd.Timestamp('2025-12-17 00:00:00+0000', tz='Europe/London'),
-                'DATE TO ACHIEVE TARGET': pd.Timedelta('199 days 01:00:00'),
+                'DAYS TO ACHIEVE TARGET': pd.Timedelta('199 days 01:00:00'),
                 'EXIT ACTION PRICE': 719.0,
                 'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                 'PURCHASE PRICE': 644.5,
                 'SET ROI TARGET': 0.1},
     'VOD': {   'ACTION': 'VOD.L_GBP→GBP',
                'DATE TARGET MET': pd.Timestamp('2025-07-24 00:00:00+0100', tz='Europe/London'),
-               'DATE TO ACHIEVE TARGET': pd.Timedelta('53 days 00:00:00'),
+               'DAYS TO ACHIEVE TARGET': pd.Timedelta('53 days 00:00:00'),
                'EXIT ACTION PRICE': 86.0199966430664,
                'PURCHASE DATE': pd.Timestamp('2025-06-01 00:00:00+0100', tz='Europe/London'),
                'PURCHASE PRICE': 76.77999877929688,
@@ -564,7 +646,7 @@ if __name__ == "__main__":
             body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"
             body += f"\n        Suggested Sell Price: {round(data['EXIT ACTION PRICE'], 2)} {currency}"
             body += f"\n        Suggested Sell Date: {data['DATE TARGET MET'].strftime("%d-%m-%Y %H:%M")}"           
-            body += f"\n        Days to achieve set ROI: {data['DATE TO ACHIEVE TARGET']}\n\n"
+            body += f"\n        Days to achieve set ROI: {data['DAYS TO ACHIEVE TARGET']}\n\n"
             
 
         except Exception as e:

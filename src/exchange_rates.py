@@ -926,6 +926,10 @@ def get_share_prices_2_with_fundamentals(
 
     return out_UPDATED
 
+# =====================================================
+# SCRIPT MANAUL TEST - ENTRY POINT
+# =====================================================
+
 if __name__ == "__main__":
     base_currency = "GBP"
     target_currencies = ["USD", "GBP", "EUR", "JPY"]

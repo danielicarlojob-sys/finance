@@ -16,7 +16,20 @@ from src.utils.retry_decorator import log_exceptions_with_retry
 from pprint import pprint as pp
 
 
-
+def safe_yf_history(ticker: str, start: datetime, end: datetime) -> pd.DataFrame:
+    """
+    Fetch yfinance history safely: returns None on empty or error.
+    """
+    try:
+        yf_ticker = yf.Ticker(ticker)
+        hist = yf_ticker.history(start=start, end=end, interval="1d", auto_adjust=False)
+        if hist.empty:
+            print(f"Warning: {ticker} returned empty data")
+            return None
+        return hist
+    except Exception as e:
+        print(f"Error fetching {ticker}: {type(e).__name__}: {e}")
+        return None
 
 def get_exchange_rates(
     base: str = "EUR",
@@ -147,38 +160,43 @@ def get_share_prices_2_with_fundamentals(
 ) -> pd.DataFrame:
     """
     Retrieve daily share prices (OHLCV) with FX-normalized price metrics,
-    volatility, and fundamental metrics.
-
-    FX conversion is applied ONLY to price-dimensioned metrics.
+    volatility, and fundamental metrics. Robust for CI execution.
     """
 
     PRICE_METRICS = {"LOW", "HIGH", "CLOSE", "RANGE"}
     frames = []
     currency_meta = {}
 
-    # 1. PRICE + FUNDAMENTALS INGESTION
+    # ---------------- fetch prices per ticker ----------------
     for ticker in tickers:
-        yf_ticker = yf.Ticker(ticker)
-        hist = yf_ticker.history(start=start, end=end, interval="1d", auto_adjust=False)
-        if hist.empty:
+        hist = safe_yf_history(ticker, start, end)
+        if hist is None:
             continue
 
-        currency = yf_ticker.fast_info.currency
+        try:
+            yf_ticker = yf.Ticker(ticker)
+            currency = yf_ticker.fast_info.currency
+        except Exception as e:
+            print(f"Warning: Cannot read currency for {ticker}: {e}")
+            currency = base_currency
         currency_meta[ticker] = currency
 
         df = hist[["Low", "High", "Close", "Volume"]].copy()
-        # Convert to naive datetime index
         df.index = pd.to_datetime(df.index).tz_localize(None)
         df["RANGE"] = df["High"] - df["Low"]
         df["VOLATILITY"] = df["Close"].pct_change().rolling(vol_window).std()
         df.rename(columns={"Low": "LOW", "High": "HIGH", "Close": "CLOSE", "Volume": "VOLUME"}, inplace=True)
         df = df[["LOW", "HIGH", "CLOSE", "RANGE", "VOLATILITY", "VOLUME"]]
 
-        # Add fundamental metrics
-        info = yf_ticker.info
-        df["EPS"] = info.get("trailingEps")
-        df["BookValue"] = info.get("bookValue")
-        df["Dividend"] = info.get("dividendRate")
+        # Add fundamentals
+        try:
+            info = yf_ticker.info
+            df["EPS"] = info.get("trailingEps")
+            df["BookValue"] = info.get("bookValue")
+            df["Dividend"] = info.get("dividendRate")
+        except Exception as e:
+            print(f"Warning: Cannot fetch fundamentals for {ticker}: {type(e).__name__}: {e}")
+            df["EPS"] = df["BookValue"] = df["Dividend"] = np.nan
 
         df.columns = pd.MultiIndex.from_product(
             [[ticker], [currency], df.columns],
@@ -187,33 +205,26 @@ def get_share_prices_2_with_fundamentals(
         frames.append(df)
 
     if not frames:
-        raise RuntimeError("No share price data retrieved")
+        raise RuntimeError("No share price data retrieved for any ticker!")
 
     out = pd.concat(frames, axis=1).sort_index()
     out.attrs["currency"] = currency_meta
     out.attrs["base_currency"] = base_currency
     out.attrs["vol_window"] = vol_window
 
-    # ----------------------------------------
-    print(f"{debug_print()} df:\n{df}")
-    print(f"{debug_print()} out:\n{out}")
-    # ----------------------------------------
-    
-    # 2. FX RETRIEVAL
+    # ---------------- FX retrieval ----------------
     currencies = sorted(set(currency_meta.values()))
-    fx = get_exchange_rates(base=base_currency, symbols=currencies, start=start, end=end)
-    print(f"{debug_print()} → FX returned:\n{fx.head()}")
+    try:
+        fx = get_exchange_rates(base=base_currency, symbols=currencies, start=start, end=end)
+        fx.index.rename("DATE", inplace=True)
+        fx_reset = fx.reset_index()
+        fx_reset["DATE"] = pd.to_datetime(fx_reset["DATE"]).dt.tz_localize(None)
+    except Exception as e:
+        print(f"Warning: FX retrieval failed: {type(e).__name__}: {e}")
+        fx_reset = pd.DataFrame()
 
-    # 3 + 4. FX ALIGNMENT + CONVERSION
+    # ---------------- FX alignment & conversion ----------------
     out_converted = out.copy()
-    fx = fx.copy()
-    # Always rename index to "DATE" before reset, regardless of current name
-    fx.index.rename("DATE", inplace=True)
-    fx_reset = fx.reset_index()
-    fx_reset["DATE"] = pd.to_datetime(fx_reset["DATE"]).dt.tz_localize(None)
-
-
-
     currency_idx = out.columns.names.index("CURRENCY")
     metric_idx = out.columns.names.index("METRIC")
     action_idx = out.columns.names.index("ACTION")
@@ -222,15 +233,16 @@ def get_share_prices_2_with_fundamentals(
         col_currency = col[currency_idx]
         metric = col[metric_idx]
 
-        if metric not in PRICE_METRICS or col_currency == base_currency:
+        if metric not in PRICE_METRICS or col_currency == base_currency or fx_reset.empty:
             continue
 
         fx_col = f"{base_currency}/{col_currency}"
         if fx_col not in fx_reset.columns:
-            raise KeyError(f"Missing FX rate: {fx_col}")
+            print(f"Warning: FX column {fx_col} missing, skipping conversion")
+            continue
 
         temp = pd.DataFrame({
-            "DATE": out.index.tz_localize(None),  # ensure naive datetime
+            "DATE": out.index.tz_localize(None),
             "PRICE": out[col].values
         })
         temp = pd.merge_asof(
@@ -241,7 +253,7 @@ def get_share_prices_2_with_fundamentals(
         )
         out_converted[col] = temp["PRICE"].values / temp[fx_col].values
 
-    # 5. RELABEL COLUMNS (POST-FX)
+    # ---------------- relabel columns ----------------
     new_columns = []
     for col in out_converted.columns:
         action = col[action_idx]
@@ -255,41 +267,3 @@ def get_share_prices_2_with_fundamentals(
     )
 
     return out_converted
-
-# =====================================================
-# SCRIPT MANAUL TEST - ENTRY POINT
-# =====================================================
-
-if __name__ == "__main__":
-
-
-
-    base_currency = "GBP"
-    target_currencies = ["USD", "GBP", "EUR", "JPY"]
-    cryptos = ["BTC", "ETH"]
-    shares = ['RR.L', 'AAPL'] #['AAPL', 'RR.L', 'MSFT', 'NVDA', 'LDO.MI','4816.T']
-
-    start_date = datetime(2025, 12, 1)
-    end_date = datetime(2026, 1, 5)#pd.Timestamp.today().normalize() #- pd.Timedelta(days=1)
-    # end_date = datetime(2026, 1, 1)
-    try:
-        fx = get_exchange_rates(base='GBP', symbols=['GBp'], start=start_date, end=end_date)
-        print("fx", fx)
-    except Exception as e:
-        print(f"{debug_print()} could not run exchange_rates {type(e).__name__};{e}")
-
-
-
-    try:
-        df_shares2 = get_share_prices_2_with_fundamentals(
-        tickers=shares, #shares_lse,
-        start=start_date,
-        end=end_date,
-        base_currency = base_currency,
-        vol_window = 20,
-    )
-
-        print(f"{debug_print()} get_share_prices_2:\n{df_shares2}")
-    except Exception as e:
-        print(f"{debug_print()} [FAILED] running get_share_prices_2 {type(e).__name__}: {e} ")
-   

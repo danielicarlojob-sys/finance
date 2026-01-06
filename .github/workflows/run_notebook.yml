@@ -50,11 +50,11 @@ jobs:
         run: |
           jupyter nbconvert \
             --execute \
-            --ExecutePreprocessor.timeout=900 \
             --to notebook \
+            --ExecutePreprocessor.timeout=900 \
             --ExecutePreprocessor.kernel_name=python3 \
             notebooks/main.ipynb \
-            --output notebooks/main_out.ipynb
+            --output main_out.ipynb
         working-directory: ${{ github.workspace }}
 
       # ---- Optional: commit executed notebook ----

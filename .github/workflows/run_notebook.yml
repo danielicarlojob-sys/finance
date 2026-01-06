@@ -16,6 +16,7 @@ jobs:
       EMAIL_USER: ${{ secrets.EMAIL_USER }}
       EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
       EMAIL_SENDER_PSW: ${{ secrets.EMAIL_SENDER_PSW }}
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - name: Checkout repository
@@ -51,8 +52,10 @@ jobs:
             --execute \
             --ExecutePreprocessor.timeout=900 \
             --to notebook \
+            --ExecutePreprocessor.kernel_name=python3 \
             notebooks/main.ipynb \
             --output notebooks/main_out.ipynb
+        working-directory: ${{ github.workspace }}
 
       # ---- Optional: commit executed notebook ----
       - name: Commit executed notebook

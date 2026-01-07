@@ -423,7 +423,7 @@ def plot_candles_volatility_volume_roi(
 
         filename = output_dir / f"{action.replace('/', '_')}_ROI.png"
         plt.savefig(filename, dpi=150, bbox_inches="tight")
-        plt.show()
+        # plt.show()
         plt.close(fig)
 
 

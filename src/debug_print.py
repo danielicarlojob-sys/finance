@@ -13,6 +13,6 @@ def debug_print(msg=None):
     # info.filename: file path
     # info.function: function name
     # info.lineno: line number
-    print(f"[DEBUG] File: {info.filename}, Function: {info.function}, Line: {info.lineno}")
+    print(f"[DEBUG PRINT]\n   File: {info.filename}\n   Function: {info.function}\n   Line: {info.lineno}")
     if msg is not None:
         print(msg)

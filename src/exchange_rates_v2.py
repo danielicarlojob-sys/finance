@@ -16,7 +16,7 @@ from src.utils.retry_decorator import log_exceptions_with_retry
 from pprint import pprint as pp
 
 
-def safe_yf_history(ticker: str, start: datetime, end: datetime) -> pd.DataFrame:
+def safe_yf_history(ticker: str, start: datetime, end: datetime,failed_tickers: list) -> pd.DataFrame:
     """
     Fetch yfinance history safely: returns None on empty or error.
     """
@@ -24,11 +24,12 @@ def safe_yf_history(ticker: str, start: datetime, end: datetime) -> pd.DataFrame
         yf_ticker = yf.Ticker(ticker)
         hist = yf_ticker.history(start=start, end=end, interval="1d", auto_adjust=False)
         if hist.empty:
-            print(f"Warning: {ticker} returned empty data")
+            print(f"{debug_print()} Warning: {ticker} returned empty data")
+            failed_tickers.append(ticker)
             return None
         return hist
     except Exception as e:
-        print(f"Error fetching {ticker}: {type(e).__name__}: {e}")
+        print(f"{debug_print()} Error fetching {ticker}: {type(e).__name__}: {e}")
         return None
 
 def get_exchange_rates(
@@ -166,10 +167,11 @@ def get_share_prices_2_with_fundamentals(
     PRICE_METRICS = {"LOW", "HIGH", "CLOSE", "RANGE"}
     frames = []
     currency_meta = {}
+    failed_tickers_container = []
 
     # ---------------- fetch prices per ticker ----------------
     for ticker in tickers:
-        hist = safe_yf_history(ticker, start, end)
+        hist = safe_yf_history(ticker, start, end, failed_tickers_container)
         if hist is None:
             continue
 
@@ -177,7 +179,7 @@ def get_share_prices_2_with_fundamentals(
             yf_ticker = yf.Ticker(ticker)
             currency = yf_ticker.fast_info.currency
         except Exception as e:
-            print(f"Warning: Cannot read currency for {ticker}: {e}")
+            print(f"{debug_print()} Warning: Cannot read currency for {ticker}: {type(e).__name__}: {e}")
             currency = base_currency
         currency_meta[ticker] = currency
 
@@ -195,7 +197,7 @@ def get_share_prices_2_with_fundamentals(
             df["BookValue"] = info.get("bookValue")
             df["Dividend"] = info.get("dividendRate")
         except Exception as e:
-            print(f"Warning: Cannot fetch fundamentals for {ticker}: {type(e).__name__}: {e}")
+            print(f"{debug_print()} Warning: Cannot fetch fundamentals for {ticker}: {type(e).__name__}: {e}")
             df["EPS"] = df["BookValue"] = df["Dividend"] = np.nan
 
         df.columns = pd.MultiIndex.from_product(
@@ -220,7 +222,7 @@ def get_share_prices_2_with_fundamentals(
         fx_reset = fx.reset_index()
         fx_reset["DATE"] = pd.to_datetime(fx_reset["DATE"]).dt.tz_localize(None)
     except Exception as e:
-        print(f"Warning: FX retrieval failed: {type(e).__name__}: {e}")
+        print(f"{debug_print()} Warning: FX retrieval failed: {type(e).__name__}: {e}")
         fx_reset = pd.DataFrame()
 
     # ---------------- FX alignment & conversion ----------------
@@ -265,5 +267,8 @@ def get_share_prices_2_with_fundamentals(
     out_converted.columns = pd.MultiIndex.from_tuples(
         new_columns, names=["ACTION", "CURRENCY", "METRIC"]
     )
+    with open("failed_tickers_extraction.txt", "w", encoding="utf-8") as f:
+        f.writelines(f"{item}\n" for item in failed_tickers_container)
 
-    return out_converted
+
+    return out_converted, failed_tickers_container

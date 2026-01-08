@@ -74,7 +74,7 @@ def plot_candles_volatility_volume_roi(
     start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
     roi_target: float = 0.05,
-    purchase_date: pd.Timestamp | None = None,
+    purchase_dates: dict | None = None,
     volume_col: str = "VOLUME",
 ):
     """
@@ -160,7 +160,7 @@ def plot_candles_volatility_volume_roi(
     # ------------------------------------------------------------------
     # Iterate over each selected ACTION independently
     # ------------------------------------------------------------------
-    for action in actions:
+    for action in actions: # list with items ending with ".L_GBp→GBP"
         # Extract data for the current ACTION
         sub = data[action]
 
@@ -286,6 +286,13 @@ def plot_candles_volatility_volume_roi(
         # ------------------------------------------------------------------
         # Resolve purchase index (entry point)
         # ------------------------------------------------------------------
+        
+        try:
+            purchase_date = purchase_dates[action.split('.')[0]]
+        except Exception as e:
+            print(f"{debug_print()}\npurchase date notfound for {action}\n{type(e).__name__}: {e}")
+            purchase_date = None
+        
         if purchase_date is not None:
             purchase_date = pd.Timestamp(purchase_date)
 

@@ -1,9 +1,10 @@
 import pandas as pd
+from src.debug_print import debug_print
 
 def get_first_roi_hit(
     df: pd.DataFrame,
     action: str,
-    purchase_date: pd.Timestamp | str,
+    purchase_dates: dict,
     roi_target: float = 0.05
 ) -> dict: #tuple[pd.Timestamp, float] | None:
     """
@@ -15,7 +16,7 @@ def get_first_roi_hit(
             MultiIndex column DataFrame with levels: ACTION, CURRENCY, METRIC.
         action (str):
             The ACTION identifier to analyze (must exist in df.columns).
-        purchase_date (pd.Timestamp | str):
+        purchase_dates (dict):
             The assumed purchase date; the first trading date on or after
             this date is used as the entry point.
         roi_target (float):
@@ -48,6 +49,13 @@ def get_first_roi_hit(
     # Synthesize OPEN if needed (not strictly required for ROI)
     if "OPEN" not in sub.columns:
         sub["OPEN"] = sub["CLOSE"].shift(1)
+
+    try:
+        purchase_date = purchase_dates[action.split('.')[0]]
+    except Exception as e:
+        print(f"{debug_print()}\npurchase date notfound for {action}\n{type(e).__name__}: {e}")
+        purchase_date = None
+
     if purchase_date is not None:
         purchase_date = pd.Timestamp(purchase_date)
 

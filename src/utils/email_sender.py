@@ -486,7 +486,7 @@ def build_roi_email_with_action_images(
             </html>
             """
 
-        return "\n".join(text_lines), html_body, inline_images
+    return "\n".join(text_lines), html_body, inline_images
 
 @log_exceptions_with_retry(
     max_retries=5,

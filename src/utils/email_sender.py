@@ -336,155 +336,156 @@ def build_roi_email_with_action_images(
     image_dir = Path(image_dir) if image_dir else None
 
     for action, data in roi_data.items():
-        # ROI MET
-        if data['DATE TARGET MET'] != None:
+        if data != None:
+            # ROI MET
+            if data['DATE TARGET MET'] != None:
 
-            if isinstance(data['PURCHASE DATE'], str):
-                data['PURCHASE DATE'] = pd.to_datetime(data['PURCHASE DATE'], format="%d/%m/%Y")
-                print(f"{debug_print()}→ Converted data['PURCHASE DATE'] from str to {type(pd.to_datetime(data['PURCHASE DATE']))} {pd.to_datetime(data['PURCHASE DATE'])}")            
-            if isinstance(data['DATE TARGET MET'], str):
-                data['DATE TARGET MET'] = pd.to_datetime(data['DATE TARGET MET'], format="%d/%m/%Y")
-                print(f"{debug_print()}→ Converted data['DATE TARGET MET'] from str to {type(pd.to_datetime(data['DATE TARGET MET']))} {pd.to_datetime(data['DATE TARGET MET'])}")            
-            
-            currency = data["ACTION"].split("→")[1]
-            cid = f"{action}_img"
+                if isinstance(data['PURCHASE DATE'], str):
+                    data['PURCHASE DATE'] = pd.to_datetime(data['PURCHASE DATE'], format="%d/%m/%Y")
+                    print(f"{debug_print()}→ Converted data['PURCHASE DATE'] from str to {type(pd.to_datetime(data['PURCHASE DATE']))} {pd.to_datetime(data['PURCHASE DATE'])}")            
+                if isinstance(data['DATE TARGET MET'], str):
+                    data['DATE TARGET MET'] = pd.to_datetime(data['DATE TARGET MET'], format="%d/%m/%Y")
+                    print(f"{debug_print()}→ Converted data['DATE TARGET MET'] from str to {type(pd.to_datetime(data['DATE TARGET MET']))} {pd.to_datetime(data['DATE TARGET MET'])}")            
+                
+                currency = data["ACTION"].split("→")[1]
+                cid = f"{action}_img"
 
-            # --- TEXT BODY ---
-            text_lines.extend([
-                f"Action: {action}",
-                f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
-                f"  Purchase Price: {data['PURCHASE PRICE']:.2f} {currency}",
-                f"  Purchase Date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
-                f"  Exit Price: {data['EXIT ACTION PRICE']:.2f} {currency}",
-                f"  Exit Date: {data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}",                
-                f"  Time to target: {data['DAYS TO ACHIEVE TARGET']}",
-                "",
-            ])
+                # --- TEXT BODY ---
+                text_lines.extend([
+                    f"Action: {action}",
+                    f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
+                    f"  Purchase Price: {data['PURCHASE PRICE']:.2f} {currency}",
+                    f"  Purchase Date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
+                    f"  Exit Price: {data['EXIT ACTION PRICE']:.2f} {currency}",
+                    f"  Exit Date: {data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}",                
+                    f"  Time to target: {data['DAYS TO ACHIEVE TARGET']}",
+                    "",
+                ])
 
-            # --- TABLE ---
-            table_rows.append(f"""
-            <tr>
-                <td><b>{action}</b></td>
-                <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
-                <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
-                <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
-                <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
-                <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
-                <td>{data['DAYS TO ACHIEVE TARGET']}</td>
-            </tr>
-            """)
-
-            # --- IMAGE RESOLUTION ---
-            img_path = None
-            if image_map and action in image_map:
-                img_path = image_map[action]
-            elif image_dir:
-                candidate = image_dir / f"{data['ACTION']}_ROI.png"
-                # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
-                if candidate.exists():
-                    img_path = candidate
-
-            if img_path:
-                inline_images[cid] = img_path
-                image_sections.append(f"""
-                <h4>{action} – Price evolution</h4>
-                <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+                # --- TABLE ---
+                table_rows.append(f"""
+                <tr>
+                    <td><b>{action}</b></td>
+                    <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
+                    <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+                    <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
+                    <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+                    <td>{data['DATE TARGET MET'].strftime('%d-%m-%Y %H:%M')}</td>
+                    <td>{data['DAYS TO ACHIEVE TARGET']}</td>
+                </tr>
                 """)
 
-            html_body = f"""
-            <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>ROI targets reached</h2>
-                <p>Data extracted on <b>{now}</b></p>
+                # --- IMAGE RESOLUTION ---
+                img_path = None
+                if image_map and action in image_map:
+                    img_path = image_map[action]
+                elif image_dir:
+                    candidate = image_dir / f"{data['ACTION']}_ROI.png"
+                    # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
+                    if candidate.exists():
+                        img_path = candidate
 
-                <table border="1" cellpadding="6" cellspacing="0">
-                    <tr style="background:#f0f0f0;">
-                        <th>Action</th>
-                        <th>Target ROI</th>
-                        <th>Buy Price</th>
-                        <th>Buy Date</th>
-                        <th>Sell Price</th>
-                        <th>Sell Date</th>
-                        <th>Time to Target</th>
-                    </tr>
-                    {''.join(table_rows)}
-                </table>
+                if img_path:
+                    inline_images[cid] = img_path
+                    image_sections.append(f"""
+                    <h4>{action} – Price evolution</h4>
+                    <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+                    """)
 
-                <hr>
-                {''.join(image_sections)}
-            </body>
-            </html>
-            """
-        else:
-            
-            if isinstance(data['PURCHASE DATE'], str):
-                data['PURCHASE DATE'] = pd.to_datetime(data['PURCHASE DATE'], format="%d/%m/%Y")
-                print(f"{debug_print()}→ Converted data['PURCHASE DATE'] from str to {type(pd.to_datetime(data['PURCHASE DATE']))} {pd.to_datetime(data['PURCHASE DATE'])}")            
-             
-            currency = data["ACTION"].split("→")[1]
-            cid = f"{action}_img"
+                html_body = f"""
+                <html>
+                <body style="font-family: Arial, sans-serif;">
+                    <h2>ROI targets reached</h2>
+                    <p>Data extracted on <b>{now}</b></p>
 
-            # --- TEXT BODY ---
-            text_lines.extend([
-                f"Action: {action}",
-                f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
-                f"  Purchase: {data['PURCHASE PRICE']:.2f} {currency}",
-                f"  Purchase Date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
-                f"  Exit: {data['EXIT ACTION PRICE']:.2f} {currency}",
-                "",
-            ])
+                    <table border="1" cellpadding="6" cellspacing="0">
+                        <tr style="background:#f0f0f0;">
+                            <th>Action</th>
+                            <th>Target ROI</th>
+                            <th>Buy Price</th>
+                            <th>Buy Date</th>
+                            <th>Sell Price</th>
+                            <th>Sell Date</th>
+                            <th>Time to Target</th>
+                        </tr>
+                        {''.join(table_rows)}
+                    </table>
 
-            # --- TABLE ---
-            table_rows.append(f"""
-            <tr>
-                <td><b>{action}</b></td>
-                <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
-                <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
-                <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
-                <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
+                    <hr>
+                    {''.join(image_sections)}
+                </body>
+                </html>
+                """
+            else:
+                
+                if isinstance(data['PURCHASE DATE'], str):
+                    data['PURCHASE DATE'] = pd.to_datetime(data['PURCHASE DATE'], format="%d/%m/%Y")
+                    print(f"{debug_print()}→ Converted data['PURCHASE DATE'] from str to {type(pd.to_datetime(data['PURCHASE DATE']))} {pd.to_datetime(data['PURCHASE DATE'])}")            
+                
+                currency = data["ACTION"].split("→")[1]
+                cid = f"{action}_img"
 
-            </tr>
-            """)
+                # --- TEXT BODY ---
+                text_lines.extend([
+                    f"Action: {action}",
+                    f"  Target ROI: {data['SET ROI TARGET'] * 100:.1f}%",
+                    f"  Purchase: {data['PURCHASE PRICE']:.2f} {currency}",
+                    f"  Purchase Date: {data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}",
+                    f"  Exit: {data['EXIT ACTION PRICE']:.2f} {currency}",
+                    "",
+                ])
 
-            # --- IMAGE RESOLUTION ---
-            img_path = None
-            if image_map and action in image_map:
-                img_path = image_map[action]
-            elif image_dir:
-                candidate = image_dir / f"{data['ACTION']}_ROI.png"
-                # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
-                if candidate.exists():
-                    img_path = candidate
+                # --- TABLE ---
+                table_rows.append(f"""
+                <tr>
+                    <td><b>{action}</b></td>
+                    <td>{data['SET ROI TARGET'] * 100:.1f}%</td>
+                    <td>{data['PURCHASE PRICE']:.2f} {currency}</td>
+                    <td>{data['PURCHASE DATE'].strftime('%d-%m-%Y %H:%M')}</td>
+                    <td>{data['EXIT ACTION PRICE']:.2f} {currency}</td>
 
-            if img_path:
-                inline_images[cid] = img_path
-                image_sections.append(f"""
-                <h4>{action} – Price evolution</h4>
-                <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+                </tr>
                 """)
 
-            html_body = f"""
-            <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>ROI targets reached</h2>
-                <p>Data extracted on <b>{now}</b></p>
+                # --- IMAGE RESOLUTION ---
+                img_path = None
+                if image_map and action in image_map:
+                    img_path = image_map[action]
+                elif image_dir:
+                    candidate = image_dir / f"{data['ACTION']}_ROI.png"
+                    # candidate = os.path.join(image_dir,f"{data['ACTION']}_ROI.png")
+                    if candidate.exists():
+                        img_path = candidate
 
-                <table border="1" cellpadding="6" cellspacing="0">
-                    <tr style="background:#f0f0f0;">
-                        <th>Action</th>
-                        <th>Target ROI</th>
-                        <th>Buy Price</th>
-                        <th>Buy Date</th>
-                        <th>Sell Price</th>
-                    </tr>
-                    {''.join(table_rows)}
-                </table>
+                if img_path:
+                    inline_images[cid] = img_path
+                    image_sections.append(f"""
+                    <h4>{action} – Price evolution</h4>
+                    <img src="cid:{cid}" style="max-width:900px; margin-bottom:20px;">
+                    """)
 
-                <hr>
-                {''.join(image_sections)}
-            </body>
-            </html>
-            """
+                html_body = f"""
+                <html>
+                <body style="font-family: Arial, sans-serif;">
+                    <h2>ROI targets reached</h2>
+                    <p>Data extracted on <b>{now}</b></p>
+
+                    <table border="1" cellpadding="6" cellspacing="0">
+                        <tr style="background:#f0f0f0;">
+                            <th>Action</th>
+                            <th>Target ROI</th>
+                            <th>Buy Price</th>
+                            <th>Buy Date</th>
+                            <th>Sell Price</th>
+                        </tr>
+                        {''.join(table_rows)}
+                    </table>
+
+                    <hr>
+                    {''.join(image_sections)}
+                </body>
+                </html>
+                """
 
     return "\n".join(text_lines), html_body, inline_images
 

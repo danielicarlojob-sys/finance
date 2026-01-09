@@ -76,6 +76,7 @@ def plot_candles_volatility_volume_roi(
     roi_target: float = 0.05,
     purchase_dates: dict | None = None,
     volume_col: str = "VOLUME",
+    plot_purchase: bool = True,
 ):
     """
     Plot candlestick price charts with volume, volatility overlay, and
@@ -286,120 +287,120 @@ def plot_candles_volatility_volume_roi(
         # ------------------------------------------------------------------
         # Resolve purchase index (entry point)
         # ------------------------------------------------------------------
-        
-        try:
-            purchase_date = purchase_dates[action.split('.')[0]]
-        except Exception as e:
-            print(f"{debug_print()}\npurchase date notfound for {action}\n{type(e).__name__}: {e}")
-            purchase_date = None
-        
-        if purchase_date is not None:
-            purchase_date = pd.Timestamp(purchase_date)
+        if plot_purchase == True:
+            try:
+                purchase_date = purchase_dates[action.split('.')[0]]
+            except Exception as e:
+                print(f"{debug_print()}\npurchase date notfound for {action}\n{type(e).__name__}: {e}")
+                purchase_date = None
+            
+            if purchase_date is not None:
+                purchase_date = pd.Timestamp(purchase_date)
 
-            idx = df.index
+                idx = df.index
 
-            # Align timezone
-            if idx.tz is not None and purchase_date.tz is None:
-                purchase_date = purchase_date.tz_localize(idx.tz)
-            elif idx.tz is None and purchase_date.tz is not None:
-                purchase_date = purchase_date.tz_convert(None)
+                # Align timezone
+                if idx.tz is not None and purchase_date.tz is None:
+                    purchase_date = purchase_date.tz_localize(idx.tz)
+                elif idx.tz is None and purchase_date.tz is not None:
+                    purchase_date = purchase_date.tz_convert(None)
 
-            valid_dates = sub.index[sub.index >= purchase_date]
-            purchase_idx = (
-                None if valid_dates.empty else sub.index.get_loc(valid_dates[0])
-            )
-        else:
-            purchase_idx = 0
+                valid_dates = sub.index[sub.index >= purchase_date]
+                purchase_idx = (
+                    None if valid_dates.empty else sub.index.get_loc(valid_dates[0])
+                )
+            else:
+                purchase_idx = 0
 
-        # ------------------------------------------------------------------
-        # BUY marker (entry signal)
-        # ------------------------------------------------------------------
-        if purchase_idx is not None:
-            buy_price = sub["CLOSE"].iloc[purchase_idx]
+            # ------------------------------------------------------------------
+            # BUY marker (entry signal)
+            # ------------------------------------------------------------------
+            if purchase_idx is not None:
+                buy_price = sub["CLOSE"].iloc[purchase_idx]
 
-            # Plot buy marker
-            ax_price.scatter(
-                x[purchase_idx],
-                buy_price,
-                marker="^",
-                s=120,
-                color="red",
-                edgecolor="black",
-                linewidth=0.8,
-                zorder=11,
-            )
+                # Plot buy marker
+                ax_price.scatter(
+                    x[purchase_idx],
+                    buy_price,
+                    marker="^",
+                    s=120,
+                    color="red",
+                    edgecolor="black",
+                    linewidth=0.8,
+                    zorder=11,
+                )
 
-            # Vertical reference line at entry
-            ax_price.axvline(
-                x=x[purchase_idx],
-                color="black",
-                linestyle=":",
-                linewidth=2,
-                alpha=0.9,
-            )
+                # Vertical reference line at entry
+                ax_price.axvline(
+                    x=x[purchase_idx],
+                    color="black",
+                    linestyle=":",
+                    linewidth=2,
+                    alpha=0.9,
+                )
 
-            # Annotate buy price
-            y_position_to_avoid_text_overlap_purchase = sub["HIGH"].max() * 0.85
+                # Annotate buy price
+                y_position_to_avoid_text_overlap_purchase = sub["HIGH"].max() * 0.85
 
-            ax_price.text(
-                x[purchase_idx],
-                y_position_to_avoid_text_overlap_purchase,
-                f"BUY @ {buy_price:.2f}",
-                color="red",
-                ha="center",
-                va="bottom",
-                fontsize=10,
-                zorder=12,
-            )
+                ax_price.text(
+                    x[purchase_idx],
+                    y_position_to_avoid_text_overlap_purchase,
+                    f"BUY @ {buy_price:.2f}",
+                    color="red",
+                    ha="center",
+                    va="bottom",
+                    fontsize=10,
+                    zorder=12,
+                )
 
 
 
-        # ------------------------------------------------------------------
-        # ROI exit marker
-        # ------------------------------------------------------------------
-        if purchase_idx is not None:
-            target_price = buy_price * (1 + roi_target)
+            # ------------------------------------------------------------------
+            # ROI exit marker
+            # ------------------------------------------------------------------
+            if purchase_idx is not None:
+                target_price = buy_price * (1 + roi_target)
 
-            # Scan forward in time for first ROI hit
-            for i in range(purchase_idx, len(sub)):
-                if sub["CLOSE"].iloc[i] >= target_price:
-                    exit_price = sub["CLOSE"].iloc[i]
-                    days_to_achieve_ROI = x[i] - x[purchase_idx]
-                    # Plot exit marker
-                    ax_price.scatter(
-                        x[i],
-                        exit_price,
-                        marker="v",
-                        s=140,
-                        color="lime",
-                        edgecolor="green",
-                        linewidth=0.8,
-                        zorder=11,
-                    )
+                # Scan forward in time for first ROI hit
+                for i in range(purchase_idx, len(sub)):
+                    if sub["CLOSE"].iloc[i] >= target_price:
+                        exit_price = sub["CLOSE"].iloc[i]
+                        days_to_achieve_ROI = x[i] - x[purchase_idx]
+                        # Plot exit marker
+                        ax_price.scatter(
+                            x[i],
+                            exit_price,
+                            marker="v",
+                            s=140,
+                            color="lime",
+                            edgecolor="green",
+                            linewidth=0.8,
+                            zorder=11,
+                        )
 
-                    # Vertical reference line at exit
-                    ax_price.axvline(
-                        x=x[i],
-                        color="lime",
-                        linestyle=":",
-                        linewidth=2,
-                        alpha=0.9,
-                    )
-                    y_position_to_avoid_text_overlap_ROI = sub["HIGH"].max() * 0.95
+                        # Vertical reference line at exit
+                        ax_price.axvline(
+                            x=x[i],
+                            color="lime",
+                            linestyle=":",
+                            linewidth=2,
+                            alpha=0.9,
+                        )
+                        y_position_to_avoid_text_overlap_ROI = sub["HIGH"].max() * 0.95
 
-                    # Annotate ROI and exit price
-                    ax_price.text(
-                        x[i],
-                        y_position_to_avoid_text_overlap_ROI,
-                        f"{roi_target*100:.0f}% ROI @ {exit_price:.2f}\nDAYS FROM PURCHASE: {days_to_achieve_ROI:.0f}",
-                        ha="center",
-                        va="bottom",
-                        fontsize=10,
-                        color="green",
-                        zorder=12,
-                    )
- 
-                    break
+                        # Annotate ROI and exit price
+                        ax_price.text(
+                            x[i],
+                            y_position_to_avoid_text_overlap_ROI,
+                            f"{roi_target*100:.0f}% ROI @ {exit_price:.2f}\nDAYS FROM PURCHASE: {days_to_achieve_ROI:.0f}",
+                            ha="center",
+                            va="bottom",
+                            fontsize=10,
+                            color="green",
+                            zorder=12,
+                        )
+    
+                        break
 
         # ------------------------------------------------------------------
         # Final formatting and layout

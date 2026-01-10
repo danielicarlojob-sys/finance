@@ -290,14 +290,12 @@ def plot_candles_volatility_volume_roi(
         # ------------------------------------------------------------------
         if plot_purchase == True:
             try:
-                # purchase_date = purchase_dates[action.split('.')[0]]
-                purchase_date = purchase_dates[action.split('.')[0]]
                 purchase_date = purchase_dates[
                     purchase_dates['Action'] == action_clean
                     ]['Purchase_Date'].values[0]
 
             except Exception as e:
-                print(f"{debug_print()}\npurchase date notfound for {action}\n{type(e).__name__}: {e}")
+                print(f"{debug_print()}\npurchase date notfound for {action_clean}\n{type(e).__name__}: {e}")
                 purchase_date = None
             
             if purchase_date is not None:
@@ -443,23 +441,25 @@ def plot_candles_volatility_volume_roi(
 
 
 if __name__ == "__main__":
-    df_shares2 = pd.read_csv('df_shares2.csv')
-    print(df_shares2.head())
-    try:
-        # from src.plot_shares_ROI2 import plot_candles_volatility_volume_roi as ROI
-        
-        actions_list   = df_shares2.columns.get_level_values("ACTION").unique().to_list()
-        print(actions_list)
-        currencies_list = df_shares2.columns.get_level_values("CURRENCY").unique()
-        metrics   = df_shares2.columns.get_level_values("METRIC").unique()
 
-        plot_candles_volatility_volume_roi(
-            df=df_shares2,
-            actions=['RR.L_GBP→GBP'],
-            start=df_shares2.index.min(),
-            end=df_shares2.index.max(),
-            purchase_date='2025-01-01',
-            roi_target=0.55
+    import pickle
+    df_shares_fund = pd.read_pickle("df_shares_fund.pkl")
+    pur = pd.read_pickle("pur.pkl")
+
+    with open("filtered_actions.pkl", "rb") as f:
+        filtered_actions = pickle.load(f)    
+    
+    with open("ROI_target.pkl", "rb") as f:
+        ROI_target = pickle.load(f)
+
+    try:
+        plot_candles_volatility_volume_roi( # from src.plot_shares_ROI import plot_candles_volatility_volume_roi
+            df=df_shares_fund,
+            actions=filtered_actions,
+            start=df_shares_fund.index.min(),
+            end=df_shares_fund.index.max(),
+            purchase_dates=pur,
+            roi_target=ROI_target,
         )
     except Exception as e:
         print(f"[FAILED] plot_candles_volatility_volume_roi {type(e).__name__}: {e} ")

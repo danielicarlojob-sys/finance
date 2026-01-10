@@ -162,6 +162,7 @@ def plot_candles_volatility_volume_roi(
     # Iterate over each selected ACTION independently
     # ------------------------------------------------------------------
     for action in actions: # list with items ending with ".L_GBp→GBP"
+        action_clean = action.split(".")[0]
         # Extract data for the current ACTION
         sub = data[action]
 
@@ -289,7 +290,12 @@ def plot_candles_volatility_volume_roi(
         # ------------------------------------------------------------------
         if plot_purchase == True:
             try:
+                # purchase_date = purchase_dates[action.split('.')[0]]
                 purchase_date = purchase_dates[action.split('.')[0]]
+                purchase_date = purchase_dates[
+                    purchase_dates['Action'] == action_clean
+                    ]['Purchase_Date'].values[0]
+
             except Exception as e:
                 print(f"{debug_print()}\npurchase date notfound for {action}\n{type(e).__name__}: {e}")
                 purchase_date = None

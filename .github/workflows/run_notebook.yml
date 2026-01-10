@@ -50,18 +50,8 @@ jobs:
         run: |
           jupyter nbconvert \
             --execute \
-            --to null \
+            --inplace \
             --ExecutePreprocessor.timeout=900 \
             --ExecutePreprocessor.kernel_name=python3 \
             notebooks/main.ipynb \
         working-directory: ${{ github.workspace }}
-
-      # ---- Optional: commit executed notebook ----
-      - name: Commit executed notebook
-        if: success()
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add notebooks/main_out.ipynb
-          git commit -m "Automated notebook execution" || echo "No changes"
-          git push
